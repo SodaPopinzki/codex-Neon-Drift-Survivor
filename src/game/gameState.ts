@@ -53,6 +53,15 @@ export class GameState {
       xp: 0,
       xpToNext: 10,
       weaponName: 'Pulse Blaster',
+      waveEventLabel: null,
+      boss: {
+        active: false,
+        name: 'Neon Warden',
+        hp: 0,
+        maxHp: 0,
+        phase: 1,
+        phaseMarkers: [0.66, 0.33],
+      },
     };
   }
 

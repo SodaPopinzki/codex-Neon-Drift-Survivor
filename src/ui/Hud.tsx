@@ -12,6 +12,9 @@ export function Hud({ hud, debug }: HudProps) {
       : 1;
   const xpProgress = hud.xpToNext > 0 ? Math.min(1, hud.xp / hud.xpToNext) : 0;
 
+  const bossHpProgress =
+    hud.boss.maxHp > 0 ? Math.max(0, Math.min(1, hud.boss.hp / hud.boss.maxHp)) : 0;
+
   return (
     <>
       <header className="top-bar">
@@ -31,6 +34,27 @@ export function Hud({ hud, debug }: HudProps) {
           />
         </div>
       </div>
+
+      {hud.waveEventLabel ? <div className="wave-event-banner">{hud.waveEventLabel}</div> : null}
+
+      {hud.boss.active ? (
+        <div className="boss-health" aria-label="Boss health">
+          <div className="boss-health-header">
+            <span>{hud.boss.name}</span>
+            <span>Phase {hud.boss.phase}</span>
+          </div>
+          <div className="boss-health-track">
+            <div className="boss-health-fill" style={{ transform: `scaleX(${bossHpProgress})` }} />
+            {hud.boss.phaseMarkers.map((marker) => (
+              <span
+                key={marker}
+                className="boss-phase-marker"
+                style={{ left: `${marker * 100}%` }}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="xp-bar" aria-label="XP bar">
         <div className="xp-bar-header">

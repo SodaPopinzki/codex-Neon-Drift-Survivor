@@ -5,7 +5,14 @@ import { defaultSettings, loadSettings, saveSettings } from './game/settings';
 import { Hud } from './ui/Hud';
 import { DraftOverlay, Overlay, UpgradeInventoryPanel } from './ui/Overlays';
 import { TouchControls } from './ui/TouchControls';
-import type { DebugState, DraftOption, HudState, Settings, UpgradeInventoryItem, VirtualStickInput } from './types/game';
+import type {
+  DebugState,
+  DraftOption,
+  HudState,
+  Settings,
+  UpgradeInventoryItem,
+  VirtualStickInput,
+} from './types/game';
 
 const initialHud: HudState = {
   timeSeconds: 0,
@@ -17,6 +24,15 @@ const initialHud: HudState = {
   xp: 0,
   xpToNext: 10,
   weaponName: 'Pulse Blaster',
+  waveEventLabel: null,
+  boss: {
+    active: false,
+    name: 'Neon Warden',
+    hp: 0,
+    maxHp: 0,
+    phase: 1,
+    phaseMarkers: [0.66, 0.33],
+  },
 };
 
 const initialDebug: DebugState = {
@@ -139,9 +155,13 @@ export function App() {
         restartToken={restartToken}
       />
 
-      {paused && !gameOver && !draftActive ? <Overlay title="Paused" subtitle="Press Esc to resume" /> : null}
+      {paused && !gameOver && !draftActive ? (
+        <Overlay title="Paused" subtitle="Press Esc to resume" />
+      ) : null}
       {gameOver ? <Overlay title="Game Over" subtitle="Press R to restart with new seed" /> : null}
-      {draftActive ? <DraftOverlay options={draftOptions} onPick={(index) => engine?.chooseDraftOption(index)} /> : null}
+      {draftActive ? (
+        <DraftOverlay options={draftOptions} onPick={(index) => engine?.chooseDraftOption(index)} />
+      ) : null}
       <UpgradeInventoryPanel items={upgradeInventory} />
 
       <button className="restart-button" type="button" onClick={restart}>

@@ -15,6 +15,15 @@ export type HudState = {
   xp: number;
   xpToNext: number;
   weaponName: string;
+  waveEventLabel: string | null;
+  boss: {
+    active: boolean;
+    name: string;
+    hp: number;
+    maxHp: number;
+    phase: number;
+    phaseMarkers: number[];
+  };
 };
 
 export type UpgradeRarity = 'common' | 'rare' | 'epic';
