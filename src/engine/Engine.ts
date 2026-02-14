@@ -15,7 +15,7 @@ type Vec2 = { x: number; y: number };
 
 type TrailPoint = Vec2 & { life: number; intensity: number };
 type DashRing = Vec2 & { age: number; life: number; maxRadius: number };
-type EnemyType = 'glider' | 'shard' | 'ram';
+type EnemyType = 'glider' | 'shard' | 'ram' | 'boss';
 
 type WeaponStats = {
   name: string;
@@ -45,6 +45,14 @@ type EnemyState = {
   windupRemaining: number;
   chargeRemaining: number;
   contactCooldown: number;
+  elite: boolean;
+  xpValue: number;
+  speedMultiplier: number;
+  isBoss: boolean;
+  phase: number;
+  bossAttackCooldown: number;
+  bossDashCooldown: number;
+  bossSpawnCooldown: number;
 };
 
 type EnemyProjectile = {
@@ -159,6 +167,24 @@ export type WorldState = {
   sawLevel: number;
   mineLevel: number;
   mineCooldown: number;
+  director: {
+    spawnRate: number;
+    enemySpeed: number;
+    enemyHp: number;
+    eliteChance: number;
+  };
+  wave: {
+    active: boolean;
+    label: string | null;
+    enemyOverride: EnemyType | null;
+    endsAt: number;
+    nextAt: number;
+  };
+  boss: {
+    spawned: boolean;
+    defeated: boolean;
+    id: number | null;
+  };
 };
 
 type EngineSystem = (dt: number, world: WorldState) => void;
@@ -193,11 +219,14 @@ const PLAYER_HIT_GRACE = 0.5;
 const PLAYER_FLASH_DURATION = 0.12;
 const SAFE_SPAWN_RADIUS = 230;
 const BASE_SPAWN_INTERVAL = 2.2;
-const MIN_SPAWN_INTERVAL = 0.55;
+const MIN_SPAWN_INTERVAL = 0.32;
 const ENEMY_PROJECTILE_SPEED = 150;
 const ENEMY_PROJECTILE_LIFE = 7;
 const PICKUP_MAGNET_RADIUS = 150;
 const SCRAP_LIFE = 18;
+const WAVE_INTERVAL = 90;
+const WAVE_DURATION = 20;
+const BOSS_TIME = 360;
 
 const STARTING_WEAPON: WeaponStats = {
   name: 'Pulse Blaster',
@@ -245,6 +274,7 @@ export class Engine {
     this.renderer = new Renderer(this.ctx);
     this.systems = [
       this.movementSystem,
+      this.directorSystem,
       this.spawnerSystem,
       this.enemySystem,
       this.autoFireSystem,
@@ -351,6 +381,15 @@ export class Engine {
     this.world.sawLevel = 0;
     this.world.mineLevel = 0;
     this.world.mineCooldown = 2;
+    this.world.director = { spawnRate: 1, enemySpeed: 1, enemyHp: 1, eliteChance: 0.04 };
+    this.world.wave = {
+      active: false,
+      label: null,
+      enemyOverride: null,
+      endsAt: 0,
+      nextAt: WAVE_INTERVAL,
+    };
+    this.world.boss = { spawned: false, defeated: false, id: null };
     this.inventory.clear();
     this.draftActive = false;
     this.draftOptions = [];
@@ -411,8 +450,10 @@ export class Engine {
     const forward = { x: Math.cos(world.player.angle), y: Math.sin(world.player.angle) };
     const right = { x: -forward.y, y: forward.x };
 
-    world.player.vx += forward.x * accelScale * PLAYER_ACCEL * world.player.moveSpeedMultiplier * dt;
-    world.player.vy += forward.y * accelScale * PLAYER_ACCEL * world.player.moveSpeedMultiplier * dt;
+    world.player.vx +=
+      forward.x * accelScale * PLAYER_ACCEL * world.player.moveSpeedMultiplier * dt;
+    world.player.vy +=
+      forward.y * accelScale * PLAYER_ACCEL * world.player.moveSpeedMultiplier * dt;
 
     const longSpeed = world.player.vx * forward.x + world.player.vy * forward.y;
     const latSpeed = world.player.vx * right.x + world.player.vy * right.y;
@@ -478,25 +519,88 @@ export class Engine {
     const lastPoint = world.trail[world.trail.length - 1];
     const dashBoost = world.player.invulnRemaining > 0 ? 1.5 : 1;
     if (!lastPoint || Math.hypot(lastPoint.x - world.player.x, lastPoint.y - world.player.y) > 3) {
-      world.trail.push({ x: world.player.x, y: world.player.y, life: TRAIL_LIFE, intensity: dashBoost });
+      world.trail.push({
+        x: world.player.x,
+        y: world.player.y,
+        life: TRAIL_LIFE,
+        intensity: dashBoost,
+      });
     }
 
     world.trail = world.trail
-      .map((point) => ({ ...point, life: point.life - dt, intensity: point.intensity * (1 - dt * 0.6) }))
+      .map((point) => ({
+        ...point,
+        life: point.life - dt,
+        intensity: point.intensity * (1 - dt * 0.6),
+      }))
       .filter((point) => point.life > 0)
       .slice(-80);
+  };
+
+  private directorSystem = (_dt: number, world: WorldState): void => {
+    const t = world.elapsedSeconds;
+    const ramp = Math.min(1, t / 420);
+    world.director.spawnRate = 1 + ramp * 1.7;
+    world.director.enemySpeed = 1 + ramp * 0.8;
+    world.director.enemyHp = 1 + ramp * 1.2;
+    world.director.eliteChance = Math.min(0.32, 0.04 + ramp * 0.28);
+
+    if (!world.wave.active && t >= world.wave.nextAt) {
+      const index = Math.floor(t / WAVE_INTERVAL) % 3;
+      world.wave.active = true;
+      world.wave.endsAt = t + WAVE_DURATION;
+      if (index === 0) {
+        world.wave.label = 'Wave Event: Swarm';
+        world.wave.enemyOverride = 'glider';
+      } else if (index === 1) {
+        world.wave.label = 'Wave Event: Snipers';
+        world.wave.enemyOverride = 'shard';
+      } else {
+        world.wave.label = 'Wave Event: Rams';
+        world.wave.enemyOverride = 'ram';
+      }
+      world.wave.nextAt += WAVE_INTERVAL;
+    }
+
+    if (world.wave.active && t >= world.wave.endsAt) {
+      world.wave.active = false;
+      world.wave.label = null;
+      world.wave.enemyOverride = null;
+    }
+
+    if (!world.boss.spawned && t >= BOSS_TIME) {
+      world.boss.spawned = true;
+      const boss = this.createBoss(world);
+      world.boss.id = boss.id;
+      world.enemies.push(boss);
+      world.wave.active = true;
+      world.wave.label = 'Neon Warden has entered the arena!';
+      world.wave.enemyOverride = null;
+      world.wave.endsAt = t + 8;
+    }
   };
 
   private spawnerSystem = (dt: number, world: WorldState): void => {
     world.spawnTimer -= dt;
     if (world.spawnTimer > 0) return;
 
-    const danger = Math.min(1, world.elapsedSeconds / 150);
-    const spawnCount = world.elapsedSeconds > 70 ? 2 : 1;
-    for (let i = 0; i < spawnCount; i += 1) world.enemies.push(this.createEnemy(world, danger));
+    const danger = Math.min(1, world.elapsedSeconds / 160);
+    const bossAlive = world.enemies.some((enemy) => enemy.isBoss && enemy.hp > 0);
+    const waveBonus = world.wave.active ? 1 : 0;
+    const baseCount = world.elapsedSeconds > 70 ? 2 : 1;
+    const spawnCount = bossAlive
+      ? 1
+      : Math.max(1, Math.floor(baseCount * world.director.spawnRate * 0.6) + waveBonus);
 
-    const interval = BASE_SPAWN_INTERVAL - (BASE_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) * danger;
-    world.spawnTimer = interval * (0.8 + this.random() * 0.5);
+    for (let i = 0; i < spawnCount; i += 1) {
+      const forcedType = world.wave.active ? world.wave.enemyOverride : null;
+      world.enemies.push(this.createEnemy(world, danger, forcedType));
+    }
+
+    const interval =
+      (BASE_SPAWN_INTERVAL - (BASE_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) * danger) /
+      world.director.spawnRate;
+    world.spawnTimer = Math.max(MIN_SPAWN_INTERVAL, interval) * (0.8 + this.random() * 0.4);
   };
 
   private enemySystem = (dt: number, world: WorldState): void => {
@@ -508,30 +612,66 @@ export class Engine {
       const distance = Math.hypot(toPlayerX, toPlayerY) || 1;
       const dirX = toPlayerX / distance;
       const dirY = toPlayerY / distance;
-      if (enemy.type === 'glider') {
+      const speedScale = enemy.speedMultiplier * world.director.enemySpeed;
+
+      if (enemy.type === 'boss') {
+        enemy.phase = enemy.hp < enemy.maxHp * 0.33 ? 3 : enemy.hp < enemy.maxHp * 0.66 ? 2 : 1;
+        enemy.bossAttackCooldown -= dt;
+        enemy.bossDashCooldown -= dt;
+        enemy.bossSpawnCooldown -= dt;
+
+        const strafe = Math.sin(world.elapsedSeconds * 1.5) * 0.3;
+        enemy.vx = (dirX * 70 - dirY * 90 * strafe) * speedScale;
+        enemy.vy = (dirY * 70 + dirX * 90 * strafe) * speedScale;
+
+        if (enemy.bossAttackCooldown <= 0) {
+          this.bossSweepAttack(world, enemy);
+          enemy.bossAttackCooldown = Math.max(1.4, 2.8 - enemy.phase * 0.45);
+        }
+        if (enemy.bossDashCooldown <= 0 && distance < 560) {
+          enemy.vx = dirX * (500 + enemy.phase * 80);
+          enemy.vy = dirY * (500 + enemy.phase * 80);
+          enemy.windupRemaining = 0.12;
+          enemy.bossDashCooldown = 4.6 - enemy.phase * 0.6;
+        }
+        if (enemy.bossSpawnCooldown <= 0) {
+          const adds = 1 + enemy.phase;
+          for (let i = 0; i < adds; i += 1)
+            world.enemies.push(this.createEnemy(world, 1, i % 2 === 0 ? 'glider' : 'shard'));
+          enemy.bossSpawnCooldown = 8 - enemy.phase;
+        }
+      } else if (enemy.type === 'glider') {
         enemy.wobblePhase += dt * 6;
         const wobble = Math.sin(enemy.wobblePhase) * 0.65;
-        enemy.vx = dirX * 120 + -dirY * 70 * wobble;
-        enemy.vy = dirY * 120 + dirX * 70 * wobble;
+        enemy.vx = (dirX * 120 + -dirY * 70 * wobble) * speedScale;
+        enemy.vy = (dirY * 120 + dirX * 70 * wobble) * speedScale;
       } else if (enemy.type === 'shard') {
         enemy.fireCooldown -= dt;
         const targetDistance = 245;
         const stretch = distance - targetDistance;
         const approach = clamp(stretch / targetDistance, -1, 1);
-        enemy.vx = dirX * approach * 112 + -dirY * 42;
-        enemy.vy = dirY * approach * 112 + dirX * 42;
+        enemy.vx = (dirX * approach * 112 + -dirY * 42) * speedScale;
+        enemy.vy = (dirY * approach * 112 + dirX * 42) * speedScale;
 
         if (enemy.fireCooldown <= 0 && distance < 500) {
           const lead = 0.5;
-          const shot = { x: player.x + player.vx * lead - enemy.x, y: player.y + player.vy * lead - enemy.y };
+          const shot = {
+            x: player.x + player.vx * lead - enemy.x,
+            y: player.y + player.vy * lead - enemy.y,
+          };
           const shotDistance = Math.hypot(shot.x, shot.y) || 1;
           world.enemyProjectiles.push({
-            id: world.nextProjectileId++, x: enemy.x, y: enemy.y,
+            id: world.nextProjectileId++,
+            x: enemy.x,
+            y: enemy.y,
             vx: (shot.x / shotDistance) * ENEMY_PROJECTILE_SPEED,
             vy: (shot.y / shotDistance) * ENEMY_PROJECTILE_SPEED,
-            radius: 6, life: ENEMY_PROJECTILE_LIFE, maxLife: ENEMY_PROJECTILE_LIFE, trail: [],
+            radius: 6,
+            life: ENEMY_PROJECTILE_LIFE,
+            maxLife: ENEMY_PROJECTILE_LIFE,
+            trail: [],
           });
-          enemy.fireCooldown = 1.3 + this.random() * 1.1;
+          enemy.fireCooldown = (1.3 + this.random() * 1.1) / speedScale;
         }
       } else {
         enemy.chargeCooldown -= dt;
@@ -544,16 +684,16 @@ export class Engine {
           enemy.vy *= friction;
         } else if (wasWindingUp && enemy.windupRemaining <= 0) {
           enemy.chargeRemaining = 0.42;
-          enemy.vx = dirX * 420;
-          enemy.vy = dirY * 420;
+          enemy.vx = dirX * 420 * speedScale;
+          enemy.vy = dirY * 420 * speedScale;
         } else if (enemy.windupRemaining > 0) {
           enemy.vx *= Math.exp(-dt * 6);
           enemy.vy *= Math.exp(-dt * 6);
         } else {
-          enemy.vx = dirX * 95;
-          enemy.vy = dirY * 95;
+          enemy.vx = dirX * 95 * speedScale;
+          enemy.vy = dirY * 95 * speedScale;
           if (enemy.chargeCooldown <= 0 && distance < 420) {
-            enemy.windupRemaining = 0.4;
+            enemy.windupRemaining = world.wave.enemyOverride === 'ram' ? 0.75 : 0.4;
             enemy.chargeCooldown = 2.8 + this.random() * 1.2;
           }
         }
@@ -567,16 +707,30 @@ export class Engine {
     world.weaponCooldown = Math.max(0, world.weaponCooldown - dt);
     if (world.weaponCooldown > 0) return;
 
-    const nearest = this.findNearestEnemyInRange(world.player.x, world.player.y, world.weapon.range, world.enemies);
-    const dir = nearest ? normalize({ x: nearest.x - world.player.x, y: nearest.y - world.player.y }) : world.player.lastMoveDir;
+    const nearest = this.findNearestEnemyInRange(
+      world.player.x,
+      world.player.y,
+      world.weapon.range,
+      world.enemies,
+    );
+    const dir = nearest
+      ? normalize({ x: nearest.x - world.player.x, y: nearest.y - world.player.y })
+      : world.player.lastMoveDir;
     world.playerProjectiles.push({
-      id: world.nextProjectileId++, x: world.player.x, y: world.player.y,
-      vx: dir.x * world.weapon.projectileSpeed, vy: dir.y * world.weapon.projectileSpeed,
-      radius: 5, life: 1.8, damage: world.weapon.damage,
+      id: world.nextProjectileId++,
+      x: world.player.x,
+      y: world.player.y,
+      vx: dir.x * world.weapon.projectileSpeed,
+      vy: dir.y * world.weapon.projectileSpeed,
+      radius: 5,
+      life: 1.8,
+      damage: world.weapon.damage,
       pierceRemaining: world.weapon.pierce,
       chainRemaining: world.weapon.chain + world.arcCoilLevel,
-      critChance: world.weapon.critChance, knockback: world.weapon.knockback,
-      hitEnemyIds: [], trail: [],
+      critChance: world.weapon.critChance,
+      knockback: world.weapon.knockback,
+      hitEnemyIds: [],
+      trail: [],
     });
 
     world.weaponCooldown = 1 / world.weapon.fireRate;
@@ -627,18 +781,48 @@ export class Engine {
     world.enemyProjectiles = world.enemyProjectiles
       .map((projectile) => {
         projectile.trail.push({ x: projectile.x, y: projectile.y, life: 0.3, intensity: 0.8 });
-        projectile.trail = projectile.trail.map((p) => ({ ...p, life: p.life - dt })).filter((p) => p.life > 0).slice(-9);
-        return { ...projectile, x: projectile.x + projectile.vx * dt, y: projectile.y + projectile.vy * dt, life: projectile.life - dt };
+        projectile.trail = projectile.trail
+          .map((p) => ({ ...p, life: p.life - dt }))
+          .filter((p) => p.life > 0)
+          .slice(-9);
+        return {
+          ...projectile,
+          x: projectile.x + projectile.vx * dt,
+          y: projectile.y + projectile.vy * dt,
+          life: projectile.life - dt,
+        };
       })
-      .filter((projectile) => projectile.life > 0 && projectile.x > -50 && projectile.y > -50 && projectile.x < world.width + 50 && projectile.y < world.height + 50);
+      .filter(
+        (projectile) =>
+          projectile.life > 0 &&
+          projectile.x > -50 &&
+          projectile.y > -50 &&
+          projectile.x < world.width + 50 &&
+          projectile.y < world.height + 50,
+      );
 
     world.playerProjectiles = world.playerProjectiles
       .map((projectile) => {
         projectile.trail.push({ x: projectile.x, y: projectile.y, life: 0.22, intensity: 1 });
-        projectile.trail = projectile.trail.map((p) => ({ ...p, life: p.life - dt })).filter((p) => p.life > 0).slice(-8);
-        return { ...projectile, x: projectile.x + projectile.vx * dt, y: projectile.y + projectile.vy * dt, life: projectile.life - dt };
+        projectile.trail = projectile.trail
+          .map((p) => ({ ...p, life: p.life - dt }))
+          .filter((p) => p.life > 0)
+          .slice(-8);
+        return {
+          ...projectile,
+          x: projectile.x + projectile.vx * dt,
+          y: projectile.y + projectile.vy * dt,
+          life: projectile.life - dt,
+        };
       })
-      .filter((projectile) => projectile.life > 0 && projectile.x > -50 && projectile.y > -50 && projectile.x < world.width + 50 && projectile.y < world.height + 50);
+      .filter(
+        (projectile) =>
+          projectile.life > 0 &&
+          projectile.x > -50 &&
+          projectile.y > -50 &&
+          projectile.x < world.width + 50 &&
+          projectile.y < world.height + 50,
+      );
   };
 
   private pickupSystem = (dt: number, world: WorldState): void => {
@@ -655,7 +839,12 @@ export class Engine {
           pickup.vx += (dx / dist) * pull * dt;
           pickup.vy += (dy / dist) * pull * dt;
         }
-        return { ...pickup, x: pickup.x + pickup.vx * dt, y: pickup.y + pickup.vy * dt, life: pickup.life - dt };
+        return {
+          ...pickup,
+          x: pickup.x + pickup.vx * dt,
+          y: pickup.y + pickup.vy * dt,
+          life: pickup.life - dt,
+        };
       })
       .filter((pickup) => {
         if (pickup.life <= 0) return false;
@@ -691,15 +880,23 @@ export class Engine {
 
     for (const mine of [...world.mines]) {
       if (mine.armTime > 0) continue;
-      const trigger = world.enemies.some((enemy) => Math.hypot(enemy.x - mine.x, enemy.y - mine.y) <= enemy.radius + mine.radius);
+      const trigger = world.enemies.some(
+        (enemy) => Math.hypot(enemy.x - mine.x, enemy.y - mine.y) <= enemy.radius + mine.radius,
+      );
       if (!trigger) continue;
       world.mines = world.mines.filter((m) => m.id !== mine.id);
       for (const enemy of world.enemies) {
         const dist = Math.hypot(enemy.x - mine.x, enemy.y - mine.y);
         if (dist > mine.blastRadius) continue;
-        enemy.hp -= mine.damage * (1 - dist / mine.blastRadius * 0.55);
+        enemy.hp -= mine.damage * (1 - (dist / mine.blastRadius) * 0.55);
       }
-      world.hitBursts.push({ x: mine.x, y: mine.y, age: 0, life: 0.26, radius: mine.blastRadius * 0.55 });
+      world.hitBursts.push({
+        x: mine.x,
+        y: mine.y,
+        age: 0,
+        life: 0.26,
+        radius: mine.blastRadius * 0.55,
+      });
     }
 
     for (const enemy of world.enemies) {
@@ -707,7 +904,10 @@ export class Engine {
       const dx = player.x - enemy.x;
       const dy = player.y - enemy.y;
       if (Math.hypot(dx, dy) >= player.radius + enemy.radius) continue;
-      this.applyPlayerHit(world, enemy.type === 'ram' ? 24 : 14, { x: dx, y: dy });
+      this.applyPlayerHit(world, enemy.isBoss ? 28 : enemy.type === 'ram' ? 24 : 14, {
+        x: dx,
+        y: dy,
+      });
       enemy.contactCooldown = 0.35;
     }
 
@@ -737,11 +937,25 @@ export class Engine {
 
         world.hitBursts.push({ x: enemy.x, y: enemy.y, age: 0, life: 0.2, radius: 26 });
         if (this.callbacks.getSettings().showDamageText) {
-          world.damageTexts.push({ x: enemy.x, y: enemy.y - enemy.radius, age: 0, life: 0.45, value: dealt, crit });
+          world.damageTexts.push({
+            x: enemy.x,
+            y: enemy.y - enemy.radius,
+            age: 0,
+            life: 0.45,
+            value: dealt,
+            crit,
+          });
         }
 
         if (projectile.chainRemaining > 0) {
-          const next = this.findNearestEnemyInRange(enemy.x, enemy.y, 170, world.enemies.filter((e) => e.id !== enemy.id && !projectile.hitEnemyIds.includes(e.id) && e.hp > 0));
+          const next = this.findNearestEnemyInRange(
+            enemy.x,
+            enemy.y,
+            170,
+            world.enemies.filter(
+              (e) => e.id !== enemy.id && !projectile.hitEnemyIds.includes(e.id) && e.hp > 0,
+            ),
+          );
           if (next) {
             const chainDir = normalize({ x: next.x - enemy.x, y: next.y - enemy.y });
             projectile.vx = chainDir.x * world.weapon.projectileSpeed;
@@ -756,10 +970,41 @@ export class Engine {
       }
     }
 
-    for (const enemy of world.enemies) if (enemy.hp <= 0) this.spawnScrap(world, enemy);
+    for (const enemy of world.enemies)
+      if (enemy.hp <= 0) {
+        if (enemy.isBoss) {
+          world.boss.defeated = true;
+          world.wave.active = true;
+          world.wave.label = 'Neon Warden defeated!';
+          world.wave.endsAt = world.elapsedSeconds + 8;
+        }
+        this.spawnScrap(world, enemy);
+      }
     world.enemies = world.enemies.filter((enemy) => enemy.hp > 0);
     world.playerProjectiles = world.playerProjectiles.filter((projectile) => projectile.life > 0);
   };
+
+  private bossSweepAttack(world: WorldState, boss: EnemyState): void {
+    const baseAngle = Math.atan2(world.player.y - boss.y, world.player.x - boss.x);
+    const shots = 5 + boss.phase * 2;
+    const arc = Math.PI * (0.5 + boss.phase * 0.1);
+    for (let i = 0; i < shots; i += 1) {
+      const t = shots === 1 ? 0.5 : i / (shots - 1);
+      const angle = baseAngle - arc / 2 + arc * t;
+      const speed = ENEMY_PROJECTILE_SPEED + 60 + boss.phase * 35;
+      world.enemyProjectiles.push({
+        id: world.nextProjectileId++,
+        x: boss.x,
+        y: boss.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        radius: 7,
+        life: ENEMY_PROJECTILE_LIFE,
+        maxLife: ENEMY_PROJECTILE_LIFE,
+        trail: [],
+      });
+    }
+  }
 
   private applyPlayerHit(world: WorldState, rawDamage: number, sourceDelta: Vec2): void {
     if (world.player.invulnRemaining > 0 || world.player.hp <= 0) return;
@@ -776,9 +1021,15 @@ export class Engine {
   }
 
   private effectsSystem = (dt: number, world: WorldState): void => {
-    world.dashRings = world.dashRings.map((ring) => ({ ...ring, age: ring.age + dt })).filter((ring) => ring.age < ring.life);
-    world.hitBursts = world.hitBursts.map((burst) => ({ ...burst, age: burst.age + dt })).filter((burst) => burst.age < burst.life);
-    world.damageTexts = world.damageTexts.map((text) => ({ ...text, age: text.age + dt, y: text.y - dt * 40 })).filter((text) => text.age < text.life);
+    world.dashRings = world.dashRings
+      .map((ring) => ({ ...ring, age: ring.age + dt }))
+      .filter((ring) => ring.age < ring.life);
+    world.hitBursts = world.hitBursts
+      .map((burst) => ({ ...burst, age: burst.age + dt }))
+      .filter((burst) => burst.age < burst.life);
+    world.damageTexts = world.damageTexts
+      .map((text) => ({ ...text, age: text.age + dt, y: text.y - dt * 40 }))
+      .filter((text) => text.age < text.life);
     world.cameraShake.strength = Math.max(0, world.cameraShake.strength - dt * 35);
     if (world.cameraShake.strength <= 0.01) {
       world.cameraShake.x = 0;
@@ -793,7 +1044,16 @@ export class Engine {
     const options = this.rollDraftChoices();
     this.draftOptions = options;
     this.draftActive = true;
-    this.callbacks.onDraftChange(true, options.map((choice) => ({ id: choice.id, title: choice.title, description: choice.description, rarity: choice.rarity, icon: choice.icon })));
+    this.callbacks.onDraftChange(
+      true,
+      options.map((choice) => ({
+        id: choice.id,
+        title: choice.title,
+        description: choice.description,
+        rarity: choice.rarity,
+        icon: choice.icon,
+      })),
+    );
   }
 
   private rollDraftChoices(): UpgradeChoice[] {
@@ -814,51 +1074,292 @@ export class Engine {
 
   private createUpgradePool(): UpgradeChoice[] {
     const world = this.world;
-    const add = (choice: Omit<UpgradeChoice, 'rarityWeight'>) => ({ ...choice, rarityWeight: choice.rarity === 'common' ? 70 : choice.rarity === 'rare' ? 22 : 8 });
+    const add = (choice: Omit<UpgradeChoice, 'rarityWeight'>) => ({
+      ...choice,
+      rarityWeight: choice.rarity === 'common' ? 70 : choice.rarity === 'rare' ? 22 : 8,
+    });
     const pool: UpgradeChoice[] = [
-      add({ id: 'damage-10', title: 'Damage +10%', description: 'Pulse damage increased by 10%.', rarity: 'common', icon: '💥', apply: (w) => this.applyWeaponScale(w, 'damage', 1.1) }),
-      add({ id: 'damage-15', title: 'Damage +15%', description: 'Pulse damage increased by 15%.', rarity: 'rare', icon: '💥', apply: (w) => this.applyWeaponScale(w, 'damage', 1.15) }),
-      add({ id: 'damage-20', title: 'Damage +20%', description: 'Pulse damage increased by 20%.', rarity: 'epic', icon: '💥', apply: (w) => this.applyWeaponScale(w, 'damage', 1.2) }),
-      add({ id: 'fire-10', title: 'Fire Rate +10%', description: 'Shoot faster.', rarity: 'common', icon: '⚡', apply: (w) => this.applyWeaponScale(w, 'fireRate', 1.1) }),
-      add({ id: 'fire-15', title: 'Fire Rate +15%', description: 'Shoot much faster.', rarity: 'rare', icon: '⚡', apply: (w) => this.applyWeaponScale(w, 'fireRate', 1.15) }),
-      add({ id: 'fire-20', title: 'Fire Rate +20%', description: 'Relentless fire cadence.', rarity: 'epic', icon: '⚡', apply: (w) => this.applyWeaponScale(w, 'fireRate', 1.2) }),
-      add({ id: 'range-10', title: 'Range +10%', description: 'Pulse range increased.', rarity: 'common', icon: '🎯', apply: (w) => this.applyWeaponScale(w, 'range', 1.1) }),
-      add({ id: 'range-15', title: 'Range +15%', description: 'Pulse range increased.', rarity: 'rare', icon: '🎯', apply: (w) => this.applyWeaponScale(w, 'range', 1.15) }),
-      add({ id: 'range-20', title: 'Range +20%', description: 'Pulse range increased.', rarity: 'epic', icon: '🎯', apply: (w) => this.applyWeaponScale(w, 'range', 1.2) }),
-      add({ id: 'move-8', title: 'Move Speed +8%', description: 'Thrusters gain momentum.', rarity: 'common', icon: '👟', apply: (w) => this.applyPlayerScale(w, 'moveSpeedMultiplier', 1.08) }),
-      add({ id: 'move-12', title: 'Move Speed +12%', description: 'Cruise faster.', rarity: 'rare', icon: '👟', apply: (w) => this.applyPlayerScale(w, 'moveSpeedMultiplier', 1.12) }),
-      add({ id: 'move-16', title: 'Move Speed +16%', description: 'Extreme mobility.', rarity: 'epic', icon: '👟', apply: (w) => this.applyPlayerScale(w, 'moveSpeedMultiplier', 1.16) }),
-      add({ id: 'dash-10', title: 'Dash Cooldown -10%', description: 'Dash ready sooner.', rarity: 'common', icon: '💨', apply: (w) => this.applyPlayerScale(w, 'dashCooldownMultiplier', 0.9) }),
-      add({ id: 'dash-15', title: 'Dash Cooldown -15%', description: 'Dash ready much sooner.', rarity: 'rare', icon: '💨', apply: (w) => this.applyPlayerScale(w, 'dashCooldownMultiplier', 0.85) }),
-      add({ id: 'dash-20', title: 'Dash Cooldown -20%', description: 'Dash almost always ready.', rarity: 'epic', icon: '💨', apply: (w) => this.applyPlayerScale(w, 'dashCooldownMultiplier', 0.8) }),
-      add({ id: 'hp-15', title: 'Max HP +15', description: 'Increase survivability.', rarity: 'common', icon: '❤️', apply: (w) => this.increaseMaxHp(w, 15) }),
-      add({ id: 'hp-25', title: 'Max HP +25', description: 'Increase survivability.', rarity: 'rare', icon: '❤️', apply: (w) => this.increaseMaxHp(w, 25) }),
-      add({ id: 'hp-40', title: 'Max HP +40', description: 'Increase survivability.', rarity: 'epic', icon: '❤️', apply: (w) => this.increaseMaxHp(w, 40) }),
-      add({ id: 'magnet-20', title: 'Pickup Magnet +20%', description: 'Pull scrap from farther.', rarity: 'common', icon: '🧲', apply: (w) => this.applyPlayerScale(w, 'pickupMagnetMultiplier', 1.2) }),
-      add({ id: 'magnet-35', title: 'Pickup Magnet +35%', description: 'Pull scrap from farther.', rarity: 'rare', icon: '🧲', apply: (w) => this.applyPlayerScale(w, 'pickupMagnetMultiplier', 1.35) }),
-      add({ id: 'magnet-50', title: 'Pickup Magnet +50%', description: 'Massive scrap pull.', rarity: 'epic', icon: '🧲', apply: (w) => this.applyPlayerScale(w, 'pickupMagnetMultiplier', 1.5) }),
+      add({
+        id: 'damage-10',
+        title: 'Damage +10%',
+        description: 'Pulse damage increased by 10%.',
+        rarity: 'common',
+        icon: '💥',
+        apply: (w) => this.applyWeaponScale(w, 'damage', 1.1),
+      }),
+      add({
+        id: 'damage-15',
+        title: 'Damage +15%',
+        description: 'Pulse damage increased by 15%.',
+        rarity: 'rare',
+        icon: '💥',
+        apply: (w) => this.applyWeaponScale(w, 'damage', 1.15),
+      }),
+      add({
+        id: 'damage-20',
+        title: 'Damage +20%',
+        description: 'Pulse damage increased by 20%.',
+        rarity: 'epic',
+        icon: '💥',
+        apply: (w) => this.applyWeaponScale(w, 'damage', 1.2),
+      }),
+      add({
+        id: 'fire-10',
+        title: 'Fire Rate +10%',
+        description: 'Shoot faster.',
+        rarity: 'common',
+        icon: '⚡',
+        apply: (w) => this.applyWeaponScale(w, 'fireRate', 1.1),
+      }),
+      add({
+        id: 'fire-15',
+        title: 'Fire Rate +15%',
+        description: 'Shoot much faster.',
+        rarity: 'rare',
+        icon: '⚡',
+        apply: (w) => this.applyWeaponScale(w, 'fireRate', 1.15),
+      }),
+      add({
+        id: 'fire-20',
+        title: 'Fire Rate +20%',
+        description: 'Relentless fire cadence.',
+        rarity: 'epic',
+        icon: '⚡',
+        apply: (w) => this.applyWeaponScale(w, 'fireRate', 1.2),
+      }),
+      add({
+        id: 'range-10',
+        title: 'Range +10%',
+        description: 'Pulse range increased.',
+        rarity: 'common',
+        icon: '🎯',
+        apply: (w) => this.applyWeaponScale(w, 'range', 1.1),
+      }),
+      add({
+        id: 'range-15',
+        title: 'Range +15%',
+        description: 'Pulse range increased.',
+        rarity: 'rare',
+        icon: '🎯',
+        apply: (w) => this.applyWeaponScale(w, 'range', 1.15),
+      }),
+      add({
+        id: 'range-20',
+        title: 'Range +20%',
+        description: 'Pulse range increased.',
+        rarity: 'epic',
+        icon: '🎯',
+        apply: (w) => this.applyWeaponScale(w, 'range', 1.2),
+      }),
+      add({
+        id: 'move-8',
+        title: 'Move Speed +8%',
+        description: 'Thrusters gain momentum.',
+        rarity: 'common',
+        icon: '👟',
+        apply: (w) => this.applyPlayerScale(w, 'moveSpeedMultiplier', 1.08),
+      }),
+      add({
+        id: 'move-12',
+        title: 'Move Speed +12%',
+        description: 'Cruise faster.',
+        rarity: 'rare',
+        icon: '👟',
+        apply: (w) => this.applyPlayerScale(w, 'moveSpeedMultiplier', 1.12),
+      }),
+      add({
+        id: 'move-16',
+        title: 'Move Speed +16%',
+        description: 'Extreme mobility.',
+        rarity: 'epic',
+        icon: '👟',
+        apply: (w) => this.applyPlayerScale(w, 'moveSpeedMultiplier', 1.16),
+      }),
+      add({
+        id: 'dash-10',
+        title: 'Dash Cooldown -10%',
+        description: 'Dash ready sooner.',
+        rarity: 'common',
+        icon: '💨',
+        apply: (w) => this.applyPlayerScale(w, 'dashCooldownMultiplier', 0.9),
+      }),
+      add({
+        id: 'dash-15',
+        title: 'Dash Cooldown -15%',
+        description: 'Dash ready much sooner.',
+        rarity: 'rare',
+        icon: '💨',
+        apply: (w) => this.applyPlayerScale(w, 'dashCooldownMultiplier', 0.85),
+      }),
+      add({
+        id: 'dash-20',
+        title: 'Dash Cooldown -20%',
+        description: 'Dash almost always ready.',
+        rarity: 'epic',
+        icon: '💨',
+        apply: (w) => this.applyPlayerScale(w, 'dashCooldownMultiplier', 0.8),
+      }),
+      add({
+        id: 'hp-15',
+        title: 'Max HP +15',
+        description: 'Increase survivability.',
+        rarity: 'common',
+        icon: '❤️',
+        apply: (w) => this.increaseMaxHp(w, 15),
+      }),
+      add({
+        id: 'hp-25',
+        title: 'Max HP +25',
+        description: 'Increase survivability.',
+        rarity: 'rare',
+        icon: '❤️',
+        apply: (w) => this.increaseMaxHp(w, 25),
+      }),
+      add({
+        id: 'hp-40',
+        title: 'Max HP +40',
+        description: 'Increase survivability.',
+        rarity: 'epic',
+        icon: '❤️',
+        apply: (w) => this.increaseMaxHp(w, 40),
+      }),
+      add({
+        id: 'magnet-20',
+        title: 'Pickup Magnet +20%',
+        description: 'Pull scrap from farther.',
+        rarity: 'common',
+        icon: '🧲',
+        apply: (w) => this.applyPlayerScale(w, 'pickupMagnetMultiplier', 1.2),
+      }),
+      add({
+        id: 'magnet-35',
+        title: 'Pickup Magnet +35%',
+        description: 'Pull scrap from farther.',
+        rarity: 'rare',
+        icon: '🧲',
+        apply: (w) => this.applyPlayerScale(w, 'pickupMagnetMultiplier', 1.35),
+      }),
+      add({
+        id: 'magnet-50',
+        title: 'Pickup Magnet +50%',
+        description: 'Massive scrap pull.',
+        rarity: 'epic',
+        icon: '🧲',
+        apply: (w) => this.applyPlayerScale(w, 'pickupMagnetMultiplier', 1.5),
+      }),
     ];
 
-    if (world.arcCoilLevel === 0) pool.push(add({ id: 'unlock-arc', title: 'Unlock Arc Coil', description: 'Shots chain to 2 additional enemies.', rarity: 'rare', icon: '🌀', apply: (w) => { w.arcCoilLevel = 1; this.recordUpgrade('unlock-arc', '🌀 Arc Coil', '🌀'); } }));
-    else pool.push(add({ id: 'up-arc', title: 'Arc Coil +1 chain', description: 'Chain one more target.', rarity: 'epic', icon: '🌀', apply: (w) => { w.arcCoilLevel += 1; this.recordUpgrade('up-arc', '🌀 Arc Coil +1', '🌀'); } }));
+    if (world.arcCoilLevel === 0)
+      pool.push(
+        add({
+          id: 'unlock-arc',
+          title: 'Unlock Arc Coil',
+          description: 'Shots chain to 2 additional enemies.',
+          rarity: 'rare',
+          icon: '🌀',
+          apply: (w) => {
+            w.arcCoilLevel = 1;
+            this.recordUpgrade('unlock-arc', '🌀 Arc Coil', '🌀');
+          },
+        }),
+      );
+    else
+      pool.push(
+        add({
+          id: 'up-arc',
+          title: 'Arc Coil +1 chain',
+          description: 'Chain one more target.',
+          rarity: 'epic',
+          icon: '🌀',
+          apply: (w) => {
+            w.arcCoilLevel += 1;
+            this.recordUpgrade('up-arc', '🌀 Arc Coil +1', '🌀');
+          },
+        }),
+      );
 
-    if (world.sawLevel === 0) pool.push(add({ id: 'unlock-saw', title: 'Unlock Shredder Saw', description: 'Orbiting blades shred nearby enemies.', rarity: 'rare', icon: '🪚', apply: (w) => { w.sawLevel = 1; this.recordUpgrade('unlock-saw', '🪚 Shredder Saw', '🪚'); } }));
-    else pool.push(add({ id: 'up-saw', title: 'Shredder Saw Upgrade', description: 'More blades and damage.', rarity: 'epic', icon: '🪚', apply: (w) => { w.sawLevel += 1; this.recordUpgrade('up-saw', '🪚 Shredder Saw+', '🪚'); } }));
+    if (world.sawLevel === 0)
+      pool.push(
+        add({
+          id: 'unlock-saw',
+          title: 'Unlock Shredder Saw',
+          description: 'Orbiting blades shred nearby enemies.',
+          rarity: 'rare',
+          icon: '🪚',
+          apply: (w) => {
+            w.sawLevel = 1;
+            this.recordUpgrade('unlock-saw', '🪚 Shredder Saw', '🪚');
+          },
+        }),
+      );
+    else
+      pool.push(
+        add({
+          id: 'up-saw',
+          title: 'Shredder Saw Upgrade',
+          description: 'More blades and damage.',
+          rarity: 'epic',
+          icon: '🪚',
+          apply: (w) => {
+            w.sawLevel += 1;
+            this.recordUpgrade('up-saw', '🪚 Shredder Saw+', '🪚');
+          },
+        }),
+      );
 
-    if (world.mineLevel === 0) pool.push(add({ id: 'unlock-mine', title: 'Unlock Nova Mine', description: 'Drop mines that explode on contact.', rarity: 'rare', icon: '💣', apply: (w) => { w.mineLevel = 1; this.recordUpgrade('unlock-mine', '💣 Nova Mine', '💣'); } }));
-    else pool.push(add({ id: 'up-mine', title: 'Nova Mine Upgrade', description: 'Faster drops and stronger blasts.', rarity: 'epic', icon: '💣', apply: (w) => { w.mineLevel += 1; this.recordUpgrade('up-mine', '💣 Nova Mine+', '💣'); } }));
+    if (world.mineLevel === 0)
+      pool.push(
+        add({
+          id: 'unlock-mine',
+          title: 'Unlock Nova Mine',
+          description: 'Drop mines that explode on contact.',
+          rarity: 'rare',
+          icon: '💣',
+          apply: (w) => {
+            w.mineLevel = 1;
+            this.recordUpgrade('unlock-mine', '💣 Nova Mine', '💣');
+          },
+        }),
+      );
+    else
+      pool.push(
+        add({
+          id: 'up-mine',
+          title: 'Nova Mine Upgrade',
+          description: 'Faster drops and stronger blasts.',
+          rarity: 'epic',
+          icon: '💣',
+          apply: (w) => {
+            w.mineLevel += 1;
+            this.recordUpgrade('up-mine', '💣 Nova Mine+', '💣');
+          },
+        }),
+      );
 
     return pool;
   }
 
-  private applyWeaponScale(world: WorldState, key: 'damage' | 'fireRate' | 'range', scale: number): void {
+  private applyWeaponScale(
+    world: WorldState,
+    key: 'damage' | 'fireRate' | 'range',
+    scale: number,
+  ): void {
     world.weapon[key] *= scale;
-    this.recordUpgrade(`${key}-${scale}`, `${key} x${scale.toFixed(2)}`, key === 'damage' ? '💥' : key === 'fireRate' ? '⚡' : '🎯');
+    this.recordUpgrade(
+      `${key}-${scale}`,
+      `${key} x${scale.toFixed(2)}`,
+      key === 'damage' ? '💥' : key === 'fireRate' ? '⚡' : '🎯',
+    );
   }
 
-  private applyPlayerScale(world: WorldState, key: 'moveSpeedMultiplier' | 'dashCooldownMultiplier' | 'pickupMagnetMultiplier', scale: number): void {
+  private applyPlayerScale(
+    world: WorldState,
+    key: 'moveSpeedMultiplier' | 'dashCooldownMultiplier' | 'pickupMagnetMultiplier',
+    scale: number,
+  ): void {
     world.player[key] *= scale;
-    const icon = key === 'moveSpeedMultiplier' ? '👟' : key === 'dashCooldownMultiplier' ? '💨' : '🧲';
+    const icon =
+      key === 'moveSpeedMultiplier' ? '👟' : key === 'dashCooldownMultiplier' ? '💨' : '🧲';
     this.recordUpgrade(`${key}-${scale}`, `${key} x${scale.toFixed(2)}`, icon);
   }
 
@@ -875,6 +1376,7 @@ export class Engine {
   }
 
   private emitHud(): void {
+    const boss = this.world.enemies.find((enemy) => enemy.isBoss);
     this.callbacks.onHudChange({
       timeSeconds: this.world.elapsedSeconds,
       level: this.world.level,
@@ -885,6 +1387,15 @@ export class Engine {
       xp: this.world.xp,
       xpToNext: this.world.xpToNext,
       weaponName: this.world.weapon.name,
+      waveEventLabel: this.world.wave.active ? this.world.wave.label : null,
+      boss: {
+        active: Boolean(boss),
+        name: 'Neon Warden',
+        hp: boss?.hp ?? 0,
+        maxHp: boss?.maxHp ?? 0,
+        phase: boss?.phase ?? 1,
+        phaseMarkers: [0.66, 0.33],
+      },
     });
   }
 
@@ -896,7 +1407,13 @@ export class Engine {
     this.callbacks.onDebugChange({
       fps: this.fps,
       dtMs: dt * 1000,
-      entities: 1 + this.world.enemies.length + this.world.enemyProjectiles.length + this.world.playerProjectiles.length + this.world.scrap.length + this.world.mines.length,
+      entities:
+        1 +
+        this.world.enemies.length +
+        this.world.enemyProjectiles.length +
+        this.world.playerProjectiles.length +
+        this.world.scrap.length +
+        this.world.mines.length,
       seed: this.world.seed,
       paused: this.callbacks.isPaused() || this.draftActive,
       enabled: this.debugEnabled,
@@ -912,47 +1429,153 @@ export class Engine {
       gridOffset: { x: 0, y: 0 },
       cameraShake: { x: 0, y: 0, strength: 0 },
       player: {
-        x: 0, y: 0, vx: 0, vy: 0, angle: -Math.PI / 2, hp: 100, maxHp: 100, radius: 12,
-        invulnRemaining: 0, dashCooldownRemaining: 0, lastMoveDir: { x: 0, y: -1 },
-        moveSpeedMultiplier: 1, dashCooldownMultiplier: 1, pickupMagnetMultiplier: 1,
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        angle: -Math.PI / 2,
+        hp: 100,
+        maxHp: 100,
+        radius: 12,
+        invulnRemaining: 0,
+        dashCooldownRemaining: 0,
+        lastMoveDir: { x: 0, y: -1 },
+        moveSpeedMultiplier: 1,
+        dashCooldownMultiplier: 1,
+        pickupMagnetMultiplier: 1,
       },
-      trail: [], dashRings: [], enemies: [], enemyProjectiles: [], playerProjectiles: [], sawBlades: [], mines: [], scrap: [], hitBursts: [], damageTexts: [],
-      nextEnemyId: 1, nextProjectileId: 1, nextPickupId: 1, spawnTimer: 1,
-      playerGraceRemaining: 0, playerFlashRemaining: 0,
-      xp: 0, level: 1, xpToNext: 10,
-      weapon: { ...STARTING_WEAPON }, weaponCooldown: 0,
-      arcCoilLevel: 0, sawLevel: 0, mineLevel: 0, mineCooldown: 2,
+      trail: [],
+      dashRings: [],
+      enemies: [],
+      enemyProjectiles: [],
+      playerProjectiles: [],
+      sawBlades: [],
+      mines: [],
+      scrap: [],
+      hitBursts: [],
+      damageTexts: [],
+      nextEnemyId: 1,
+      nextProjectileId: 1,
+      nextPickupId: 1,
+      spawnTimer: 1,
+      playerGraceRemaining: 0,
+      playerFlashRemaining: 0,
+      xp: 0,
+      level: 1,
+      xpToNext: 10,
+      weapon: { ...STARTING_WEAPON },
+      weaponCooldown: 0,
+      arcCoilLevel: 0,
+      sawLevel: 0,
+      mineLevel: 0,
+      mineCooldown: 2,
+      director: { spawnRate: 1, enemySpeed: 1, enemyHp: 1, eliteChance: 0.04 },
+      wave: { active: false, label: null, enemyOverride: null, endsAt: 0, nextAt: WAVE_INTERVAL },
+      boss: { spawned: false, defeated: false, id: null },
     };
   }
 
-  private createEnemy(world: WorldState, danger: number): EnemyState {
+  private createEnemy(
+    world: WorldState,
+    danger: number,
+    forcedType: EnemyType | null = null,
+  ): EnemyState {
     const roll = this.random();
     let type: EnemyType;
-    if (danger < 0.22) type = 'glider';
+    if (forcedType) type = forcedType;
+    else if (danger < 0.22) type = 'glider';
     else if (danger < 0.58) type = roll < 0.7 ? 'glider' : 'shard';
     else type = roll < 0.45 ? 'glider' : roll < 0.75 ? 'shard' : 'ram';
 
     const spawn = this.findSpawnPoint(world);
-    const radius = type === 'ram' ? 16 : type === 'shard' ? 13 : 12;
-    const hp = type === 'ram' ? 48 : type === 'shard' ? 32 : 22;
+    const baseRadius = type === 'ram' ? 16 : type === 'shard' ? 13 : 12;
+    const baseHp = type === 'ram' ? 48 : type === 'shard' ? 32 : 22;
+    const elite = type !== 'boss' && this.random() < world.director.eliteChance;
+    const radius = elite ? baseRadius * 1.5 : baseRadius;
+    const hp = baseHp * world.director.enemyHp * (elite ? 2 : 1);
 
     return {
-      id: world.nextEnemyId++, type, x: spawn.x, y: spawn.y, vx: 0, vy: 0, radius, hp, maxHp: hp,
-      wobblePhase: this.random() * Math.PI * 2, fireCooldown: 1 + this.random() * 1.5,
-      chargeCooldown: 1.3 + this.random() * 1.2, windupRemaining: 0, chargeRemaining: 0, contactCooldown: 0,
+      id: world.nextEnemyId++,
+      type,
+      x: spawn.x,
+      y: spawn.y,
+      vx: 0,
+      vy: 0,
+      radius,
+      hp,
+      maxHp: hp,
+      wobblePhase: this.random() * Math.PI * 2,
+      fireCooldown: 1 + this.random() * 1.5,
+      chargeCooldown: 1.3 + this.random() * 1.2,
+      windupRemaining: 0,
+      chargeRemaining: 0,
+      contactCooldown: 0,
+      elite,
+      xpValue: elite ? 5 : 2,
+      speedMultiplier: elite ? 1.18 : 1,
+      isBoss: false,
+      phase: 1,
+      bossAttackCooldown: 0,
+      bossDashCooldown: 0,
+      bossSpawnCooldown: 0,
+    };
+  }
+
+  private createBoss(world: WorldState): EnemyState {
+    const spawn = this.findSpawnPoint(world);
+    const hp = 3200;
+    return {
+      id: world.nextEnemyId++,
+      type: 'boss',
+      x: spawn.x,
+      y: spawn.y,
+      vx: 0,
+      vy: 0,
+      radius: 42,
+      hp,
+      maxHp: hp,
+      wobblePhase: 0,
+      fireCooldown: 0,
+      chargeCooldown: 0,
+      windupRemaining: 0,
+      chargeRemaining: 0,
+      contactCooldown: 0,
+      elite: false,
+      xpValue: 24,
+      speedMultiplier: 1,
+      isBoss: true,
+      phase: 1,
+      bossAttackCooldown: 1.5,
+      bossDashCooldown: 3,
+      bossSpawnCooldown: 6,
     };
   }
 
   private spawnScrap(world: WorldState, enemy: EnemyState): void {
-    const drops = enemy.type === 'ram' ? 4 : enemy.type === 'shard' ? 3 : 2;
+    const drops = enemy.isBoss ? 28 : enemy.type === 'ram' ? 4 : enemy.type === 'shard' ? 3 : 2;
+    const scrapValue = enemy.isBoss ? 6 : enemy.xpValue;
     for (let i = 0; i < drops; i += 1) {
       const angle = this.random() * Math.PI * 2;
       const speed = 60 + this.random() * 60;
-      world.scrap.push({ id: world.nextPickupId++, x: enemy.x, y: enemy.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, radius: 5, value: 2, life: SCRAP_LIFE });
+      world.scrap.push({
+        id: world.nextPickupId++,
+        x: enemy.x,
+        y: enemy.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        radius: 5,
+        value: scrapValue,
+        life: SCRAP_LIFE,
+      });
     }
   }
 
-  private findNearestEnemyInRange(x: number, y: number, range: number, enemies: EnemyState[]): EnemyState | null {
+  private findNearestEnemyInRange(
+    x: number,
+    y: number,
+    range: number,
+    enemies: EnemyState[],
+  ): EnemyState | null {
     const rangeSq = range * range;
     let nearest: EnemyState | null = null;
     let nearestDistSq = Number.POSITIVE_INFINITY;
@@ -973,10 +1596,19 @@ export class Engine {
       const margin = 30;
       let x = 0;
       let y = 0;
-      if (edge === 0) { x = -margin; y = this.random() * world.height; }
-      else if (edge === 1) { x = world.width + margin; y = this.random() * world.height; }
-      else if (edge === 2) { x = this.random() * world.width; y = -margin; }
-      else { x = this.random() * world.width; y = world.height + margin; }
+      if (edge === 0) {
+        x = -margin;
+        y = this.random() * world.height;
+      } else if (edge === 1) {
+        x = world.width + margin;
+        y = this.random() * world.height;
+      } else if (edge === 2) {
+        x = this.random() * world.width;
+        y = -margin;
+      } else {
+        x = this.random() * world.width;
+        y = world.height + margin;
+      }
 
       if (Math.hypot(x - world.player.x, y - world.player.y) >= SAFE_SPAWN_RADIUS) {
         return { x: clamp(x, 10, world.width - 10), y: clamp(y, 10, world.height - 10) };
@@ -995,11 +1627,15 @@ function getSoftBoundForce(x: number, y: number, width: number, height: number):
   let forceX = 0;
   let forceY = 0;
 
-  if (x < SOFT_BOUND_MARGIN) forceX += ((SOFT_BOUND_MARGIN - x) / SOFT_BOUND_MARGIN) * SOFT_BOUND_FORCE;
-  else if (x > width - SOFT_BOUND_MARGIN) forceX -= ((x - (width - SOFT_BOUND_MARGIN)) / SOFT_BOUND_MARGIN) * SOFT_BOUND_FORCE;
+  if (x < SOFT_BOUND_MARGIN)
+    forceX += ((SOFT_BOUND_MARGIN - x) / SOFT_BOUND_MARGIN) * SOFT_BOUND_FORCE;
+  else if (x > width - SOFT_BOUND_MARGIN)
+    forceX -= ((x - (width - SOFT_BOUND_MARGIN)) / SOFT_BOUND_MARGIN) * SOFT_BOUND_FORCE;
 
-  if (y < SOFT_BOUND_MARGIN) forceY += ((SOFT_BOUND_MARGIN - y) / SOFT_BOUND_MARGIN) * SOFT_BOUND_FORCE;
-  else if (y > height - SOFT_BOUND_MARGIN) forceY -= ((y - (height - SOFT_BOUND_MARGIN)) / SOFT_BOUND_MARGIN) * SOFT_BOUND_FORCE;
+  if (y < SOFT_BOUND_MARGIN)
+    forceY += ((SOFT_BOUND_MARGIN - y) / SOFT_BOUND_MARGIN) * SOFT_BOUND_FORCE;
+  else if (y > height - SOFT_BOUND_MARGIN)
+    forceY -= ((y - (height - SOFT_BOUND_MARGIN)) / SOFT_BOUND_MARGIN) * SOFT_BOUND_FORCE;
 
   return { x: forceX, y: forceY };
 }

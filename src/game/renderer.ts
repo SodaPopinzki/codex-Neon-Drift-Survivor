@@ -159,7 +159,22 @@ export class Renderer {
     for (const enemy of world.enemies) {
       this.ctx.save();
       this.ctx.translate(enemy.x, enemy.y);
-      if (enemy.type === 'glider') {
+      if (enemy.elite) {
+        this.ctx.shadowBlur = 14;
+        this.ctx.shadowColor = settings.highContrast ? '#fff' : '#9cf8ff';
+      }
+      if (enemy.type === 'boss') {
+        this.ctx.strokeStyle = settings.highContrast ? '#fff' : '#ff5fa2';
+        this.ctx.fillStyle = settings.highContrast ? '#000' : 'rgba(255,95,162,0.24)';
+        this.ctx.lineWidth = 4;
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, enemy.radius, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.stroke();
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, enemy.radius * 0.55, 0, Math.PI * 2);
+        this.ctx.stroke();
+      } else if (enemy.type === 'glider') {
         this.ctx.strokeStyle = settings.highContrast ? '#fff' : '#80ff7a';
         this.ctx.fillStyle = settings.highContrast ? '#000' : 'rgba(38, 255, 120, 0.22)';
         this.ctx.lineWidth = 2;
@@ -229,12 +244,15 @@ export class Renderer {
     }
   }
 
-
   private drawMines(world: WorldState, settings: Settings): void {
     for (const mine of world.mines) {
       this.ctx.beginPath();
       this.ctx.arc(mine.x, mine.y, mine.radius, 0, Math.PI * 2);
-      this.ctx.fillStyle = settings.highContrast ? '#fff' : mine.armTime > 0 ? 'rgba(255,180,130,0.75)' : '#ff8a6a';
+      this.ctx.fillStyle = settings.highContrast
+        ? '#fff'
+        : mine.armTime > 0
+          ? 'rgba(255,180,130,0.75)'
+          : '#ff8a6a';
       this.ctx.fill();
     }
   }

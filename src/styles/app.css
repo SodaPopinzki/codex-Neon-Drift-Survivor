@@ -273,10 +273,20 @@ body,
   font-weight: 700;
 }
 
-.rarity-common { border-color: #7d8ea8; }
-.rarity-rare { border-color: #66beff; }
-.rarity-epic { border-color: #d78dff; }
-.rarity-label { text-transform: capitalize; font-size: 12px; opacity: 0.9; }
+.rarity-common {
+  border-color: #7d8ea8;
+}
+.rarity-rare {
+  border-color: #66beff;
+}
+.rarity-epic {
+  border-color: #d78dff;
+}
+.rarity-label {
+  text-transform: capitalize;
+  font-size: 12px;
+  opacity: 0.9;
+}
 
 .upgrade-inventory {
   position: absolute;
@@ -291,11 +301,86 @@ body,
   padding: 8px 10px;
 }
 
-.upgrade-inventory h3 { margin: 0 0 8px; }
-.upgrade-inventory ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
-.upgrade-inventory li { display: grid; grid-template-columns: 20px 1fr auto; gap: 6px; align-items: center; font-size: 13px; }
+.upgrade-inventory h3 {
+  margin: 0 0 8px;
+}
+.upgrade-inventory ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+.upgrade-inventory li {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+}
 
 @media (max-width: 720px) {
-  .draft-cards { grid-template-columns: 1fr; }
-  .upgrade-inventory { width: min(240px, calc(100% - 24px)); top: auto; bottom: 140px; }
+  .draft-cards {
+    grid-template-columns: 1fr;
+  }
+  .upgrade-inventory {
+    width: min(240px, calc(100% - 24px));
+    top: auto;
+    bottom: 140px;
+  }
+}
+
+.wave-event-banner {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border: 1px solid #7cf3ff;
+  background: rgb(8 16 34 / 80%);
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.boss-health {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100% - 260px));
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 60%);
+}
+
+.boss-health-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.boss-health-track {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 12%);
+}
+
+.boss-health-fill {
+  width: 100%;
+  height: 100%;
+  transform-origin: left;
+  background: linear-gradient(90deg, #ff6f87 0%, #ffbe63 100%);
+}
+
+.boss-phase-marker {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: rgb(214 232 255 / 85%);
 }
