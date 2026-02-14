@@ -47,6 +47,7 @@ export class GameState {
       timeSeconds: this.elapsedSeconds,
       level: Math.floor(this.elapsedSeconds / 15) + 1,
       hp: this.player.hp,
+      seed: 0,
     };
   }
 

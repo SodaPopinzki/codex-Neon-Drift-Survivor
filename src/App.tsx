@@ -4,16 +4,27 @@ import { defaultSettings, loadSettings, saveSettings } from './game/settings';
 import { Hud } from './ui/Hud';
 import { Overlay } from './ui/Overlays';
 import { TouchControls } from './ui/TouchControls';
-import type { HudState, Settings, VirtualStickInput } from './types/game';
+import type { DebugState, HudState, Settings, VirtualStickInput } from './types/game';
 
 const initialHud: HudState = {
   timeSeconds: 0,
   level: 1,
   hp: 100,
+  seed: 0,
+};
+
+const initialDebug: DebugState = {
+  fps: 0,
+  dtMs: 0,
+  entities: 1,
+  seed: 0,
+  paused: false,
+  enabled: false,
 };
 
 export function App() {
   const [hud, setHud] = useState<HudState>(initialHud);
+  const [debug, setDebug] = useState<DebugState>(initialDebug);
   const [paused, setPaused] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [restartToken, setRestartToken] = useState(0);
@@ -46,7 +57,7 @@ export function App() {
 
   return (
     <main className={rootClassName}>
-      <Hud hud={hud} />
+      <Hud hud={hud} debug={debug} />
 
       <div className="settings-row">
         <label>
@@ -90,15 +101,16 @@ export function App() {
             setGameOver(true);
           }
         }}
+        onDebugChange={setDebug}
         onTogglePause={() => setPaused((value) => !value)}
         restartToken={restartToken}
       />
 
       {paused && !gameOver ? <Overlay title="Paused" subtitle="Press Esc to resume" /> : null}
-      {gameOver ? <Overlay title="Game Over" subtitle="Press R to restart" /> : null}
+      {gameOver ? <Overlay title="Game Over" subtitle="Press R to restart with new seed" /> : null}
 
       <button className="restart-button" type="button" onClick={restart}>
-        Restart (R)
+        Restart (R / Shift+R)
       </button>
 
       <TouchControls

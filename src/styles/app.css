@@ -68,6 +68,21 @@ body,
   font-size: 14px;
 }
 
+.debug-overlay {
+  position: absolute;
+  z-index: 3;
+  left: 12px;
+  top: 106px;
+  display: grid;
+  gap: 4px;
+  min-width: 160px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 55%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
 .overlay {
   position: absolute;
   z-index: 4;
