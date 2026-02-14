@@ -1,9 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { GameLoop } from '../engine/gameLoop';
-import { InputController } from '../engine/input';
-import type { Settings, VirtualStickInput } from '../types/game';
-import { GameState } from './gameState';
-import { Renderer } from './renderer';
+import { Engine } from '../engine/Engine';
+import type { DebugState, HudState, Settings, VirtualStickInput } from '../types/game';
 
 type GameCanvasProps = {
   paused: boolean;
@@ -11,7 +8,8 @@ type GameCanvasProps = {
   settings: Settings;
   touchMovement: VirtualStickInput;
   touchDash: boolean;
-  onHudChange: (state: ReturnType<GameState['getHudState']>) => void;
+  onHudChange: (state: HudState) => void;
+  onDebugChange: (state: DebugState) => void;
   onTogglePause: () => void;
   restartToken: number;
 };
@@ -23,15 +21,17 @@ export function GameCanvas({
   touchMovement,
   touchDash,
   onHudChange,
+  onDebugChange,
   onTogglePause,
   restartToken,
 }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const inputRef = useRef<InputController | null>(null);
+  const engineRef = useRef<Engine | null>(null);
   const settingsRef = useRef(settings);
   const pauseRef = useRef(paused);
   const gameOverRef = useRef(gameOver);
   const hudCallbackRef = useRef(onHudChange);
+  const debugCallbackRef = useRef(onDebugChange);
   const togglePauseRef = useRef(onTogglePause);
 
   useEffect(() => {
@@ -51,6 +51,10 @@ export function GameCanvas({
   }, [onHudChange]);
 
   useEffect(() => {
+    debugCallbackRef.current = onDebugChange;
+  }, [onDebugChange]);
+
+  useEffect(() => {
     togglePauseRef.current = onTogglePause;
   }, [onTogglePause]);
 
@@ -61,57 +65,34 @@ export function GameCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const gameState = new GameState();
-    const renderer = new Renderer(ctx, gameState);
-    const input = new InputController();
-    inputRef.current = input;
+    const engine = new Engine(canvas, ctx, {
+      onHudChange: (hud) => hudCallbackRef.current(hud),
+      onDebugChange: (debug) => debugCallbackRef.current(debug),
+      onPauseToggle: () => togglePauseRef.current(),
+      isPaused: () => pauseRef.current,
+      isGameOver: () => gameOverRef.current,
+      getSettings: () => settingsRef.current,
+    });
+    engineRef.current = engine;
 
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-      gameState.resize(canvas.width, canvas.height);
-      renderer.render(settingsRef.current);
-    };
+    engine.start();
 
-    resize();
+    const resize = () => engine.resize();
     window.addEventListener('resize', resize);
 
-    const loop = new GameLoop({
-      update: (dt) => {
-        if (input.consumePausePressed()) {
-          togglePauseRef.current();
-        }
-
-        if (input.consumeRestartPressed()) {
-          gameState.reset();
-        }
-
-        if (pauseRef.current || gameOverRef.current) {
-          return;
-        }
-
-        gameState.update(dt, input.getMovementVector(), input.isDashPressed());
-        hudCallbackRef.current(gameState.getHudState());
-      },
-      render: () => renderer.render(settingsRef.current),
-    });
-
-    loop.start();
-
     return () => {
-      loop.stop();
-      input.dispose();
+      engine.stop();
       window.removeEventListener('resize', resize);
-      inputRef.current = null;
+      engineRef.current = null;
     };
   }, [restartToken]);
 
   useEffect(() => {
-    inputRef.current?.setTouchMovement(touchMovement);
+    engineRef.current?.setTouchMovement(touchMovement);
   }, [touchMovement]);
 
   useEffect(() => {
-    inputRef.current?.setTouchDash(touchDash);
+    engineRef.current?.setTouchDash(touchDash);
   }, [touchDash]);
 
   return <canvas ref={canvasRef} className="game-canvas" aria-label="Neon Drift arena" />;

@@ -8,10 +8,20 @@ export type HudState = {
   timeSeconds: number;
   level: number;
   hp: number;
+  seed: number;
 };
 
 export type VirtualStickInput = {
   x: number;
   y: number;
   active: boolean;
+};
+
+export type DebugState = {
+  fps: number;
+  dtMs: number;
+  entities: number;
+  seed: number;
+  paused: boolean;
+  enabled: boolean;
 };

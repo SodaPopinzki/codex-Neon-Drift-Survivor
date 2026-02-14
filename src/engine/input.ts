@@ -1,5 +1,7 @@
 import type { VirtualStickInput } from '../types/game';
 
+export type RestartMode = 'same_seed' | 'new_seed';
+
 type KeyState = {
   up: boolean;
   down: boolean;
@@ -7,7 +9,8 @@ type KeyState = {
   right: boolean;
   dash: boolean;
   pausePressed: boolean;
-  restartPressed: boolean;
+  restartMode: RestartMode | null;
+  debugPressed: boolean;
 };
 
 export class InputController {
@@ -18,11 +21,13 @@ export class InputController {
     right: false,
     dash: false,
     pausePressed: false,
-    restartPressed: false,
+    restartMode: null,
+    debugPressed: false,
   };
 
   private touchStick: VirtualStickInput = { x: 0, y: 0, active: false };
   private touchDash = false;
+  private dashWasPressed = false;
 
   constructor() {
     window.addEventListener('keydown', this.onKeyDown);
@@ -48,9 +53,15 @@ export class InputController {
     return true;
   }
 
-  consumeRestartPressed(): boolean {
-    if (!this.keyState.restartPressed) return false;
-    this.keyState.restartPressed = false;
+  consumeRestartMode(): RestartMode | null {
+    const mode = this.keyState.restartMode;
+    this.keyState.restartMode = null;
+    return mode;
+  }
+
+  consumeDebugToggle(): boolean {
+    if (!this.keyState.debugPressed) return false;
+    this.keyState.debugPressed = false;
     return true;
   }
 
@@ -76,8 +87,11 @@ export class InputController {
     return { x, y };
   }
 
-  isDashPressed(): boolean {
-    return this.keyState.dash || this.touchDash;
+  consumeDashPressedEdge(): boolean {
+    const isPressed = this.keyState.dash || this.touchDash;
+    const didPress = isPressed && !this.dashWasPressed;
+    this.dashWasPressed = isPressed;
+    return didPress;
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
@@ -106,7 +120,10 @@ export class InputController {
         this.keyState.pausePressed = true;
         break;
       case 'KeyR':
-        this.keyState.restartPressed = true;
+        this.keyState.restartMode = event.shiftKey ? 'same_seed' : 'new_seed';
+        break;
+      case 'Backquote':
+        this.keyState.debugPressed = true;
         break;
       default:
         break;
