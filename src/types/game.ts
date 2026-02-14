@@ -12,6 +12,7 @@ export type HudState = {
   level: number;
   hp: number;
   seed: number;
+  enemiesDefeated: number;
   dashCooldownRemaining: number;
   dashCooldownTotal: number;
   xp: number;

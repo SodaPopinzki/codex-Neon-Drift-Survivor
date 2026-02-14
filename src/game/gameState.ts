@@ -48,6 +48,7 @@ export class GameState {
       level: Math.floor(this.elapsedSeconds / 15) + 1,
       hp: this.player.hp,
       seed: 0,
+      enemiesDefeated: 0,
       dashCooldownRemaining: 0,
       dashCooldownTotal: 2.5,
       xp: 0,

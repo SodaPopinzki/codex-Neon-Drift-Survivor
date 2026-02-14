@@ -172,6 +172,7 @@ export type WorldState = {
   xp: number;
   level: number;
   xpToNext: number;
+  enemiesDefeated: number;
   weapon: WeaponStats;
   weaponCooldown: number;
   arcCoilLevel: number;
@@ -393,6 +394,7 @@ export class Engine {
     this.world.level = 1;
     this.world.xp = 0;
     this.world.xpToNext = 10;
+    this.world.enemiesDefeated = 0;
     this.world.weapon = { ...STARTING_WEAPON };
     this.world.weaponCooldown = 0;
     this.world.arcCoilLevel = 0;
@@ -1015,6 +1017,7 @@ export class Engine {
 
     for (const enemy of world.enemies)
       if (enemy.hp <= 0) {
+        world.enemiesDefeated += 1;
         if (enemy.isBoss) {
           world.boss.defeated = true;
           world.wave.active = true;
@@ -1482,6 +1485,7 @@ export class Engine {
       level: this.world.level,
       hp: this.world.player.hp,
       seed: this.world.seed,
+      enemiesDefeated: this.world.enemiesDefeated,
       dashCooldownRemaining: this.world.player.dashCooldownRemaining,
       dashCooldownTotal: DASH_COOLDOWN * this.world.player.dashCooldownMultiplier,
       xp: this.world.xp,
@@ -1608,6 +1612,7 @@ export class Engine {
       xp: 0,
       level: 1,
       xpToNext: 10,
+      enemiesDefeated: 0,
       weapon: { ...STARTING_WEAPON },
       weaponCooldown: 0,
       arcCoilLevel: 0,

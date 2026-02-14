@@ -32,6 +32,14 @@ body,
   color: #ffffff;
 }
 
+button {
+  border: 1px solid #5ec6ff;
+  color: #d8f6ff;
+  background: rgb(16 34 66 / 70%);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
 .game-canvas {
   width: 100%;
   height: 100%;
@@ -81,27 +89,6 @@ body,
   background: linear-gradient(90deg, #ff4dc4 0%, #66f7ff 100%);
 }
 
-.settings-row {
-  position: absolute;
-  z-index: 3;
-  top: 174px;
-  left: 12px;
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: center;
-  background: rgb(0 0 0 / 45%);
-  padding: 8px 12px;
-  border-radius: 8px;
-}
-
-.settings-row label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-}
-
 .debug-overlay {
   position: absolute;
   z-index: 3;
@@ -136,16 +123,54 @@ body,
   margin-top: 8px;
 }
 
-.restart-button {
-  position: absolute;
-  right: 12px;
-  top: 12px;
-  z-index: 3;
-  border: 1px solid #5ec6ff;
-  color: #d8f6ff;
-  background: rgb(16 34 66 / 70%);
-  border-radius: 8px;
-  padding: 8px 12px;
+.menu-panel,
+.run-summary {
+  width: min(720px, 92vw);
+  border-radius: 12px;
+  background: rgb(8 13 24 / 92%);
+  border: 1px solid #2a4064;
+  padding: 20px;
+  text-align: left;
+}
+
+.menu-panel h1,
+.run-summary h2 {
+  margin: 0 0 8px;
+}
+
+.menu-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.title-subpanel {
+  margin-top: 16px;
+  border-top: 1px solid rgb(255 255 255 / 15%);
+  padding-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.title-subpanel label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-subpanel ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.summary-seed-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .touch-controls {
@@ -317,70 +342,4 @@ body,
   gap: 6px;
   align-items: center;
   font-size: 13px;
-}
-
-@media (max-width: 720px) {
-  .draft-cards {
-    grid-template-columns: 1fr;
-  }
-  .upgrade-inventory {
-    width: min(240px, calc(100% - 24px));
-    top: auto;
-    bottom: 140px;
-  }
-}
-
-.wave-event-banner {
-  position: absolute;
-  z-index: 5;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 14px;
-  border: 1px solid #7cf3ff;
-  background: rgb(8 16 34 / 80%);
-  border-radius: 999px;
-  font-weight: 700;
-}
-
-.boss-health {
-  position: absolute;
-  z-index: 5;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(640px, calc(100% - 260px));
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgb(0 0 0 / 60%);
-}
-
-.boss-health-header {
-  display: flex;
-  justify-content: space-between;
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-
-.boss-health-track {
-  position: relative;
-  height: 12px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: rgb(255 255 255 / 12%);
-}
-
-.boss-health-fill {
-  width: 100%;
-  height: 100%;
-  transform-origin: left;
-  background: linear-gradient(90deg, #ff6f87 0%, #ffbe63 100%);
-}
-
-.boss-phase-marker {
-  position: absolute;
-  top: 0;
-  width: 2px;
-  height: 100%;
-  background: rgb(214 232 255 / 85%);
 }
