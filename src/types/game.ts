@@ -2,6 +2,7 @@ export type Settings = {
   volume: number;
   screenShake: boolean;
   highContrast: boolean;
+  showDamageText: boolean;
 };
 
 export type HudState = {
@@ -11,6 +12,9 @@ export type HudState = {
   seed: number;
   dashCooldownRemaining: number;
   dashCooldownTotal: number;
+  xp: number;
+  xpToNext: number;
+  weaponName: string;
 };
 
 export type VirtualStickInput = {

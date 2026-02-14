@@ -6,6 +6,7 @@ export const defaultSettings: Settings = {
   volume: 0.5,
   screenShake: true,
   highContrast: false,
+  showDamageText: true,
 };
 
 export function loadSettings(): Settings {
@@ -17,13 +18,21 @@ export function loadSettings(): Settings {
   try {
     const parsed = JSON.parse(raw) as Partial<Settings>;
     return {
-      volume: clamp(typeof parsed.volume === 'number' ? parsed.volume : defaultSettings.volume, 0, 1),
+      volume: clamp(
+        typeof parsed.volume === 'number' ? parsed.volume : defaultSettings.volume,
+        0,
+        1,
+      ),
       screenShake:
         typeof parsed.screenShake === 'boolean' ? parsed.screenShake : defaultSettings.screenShake,
       highContrast:
         typeof parsed.highContrast === 'boolean'
           ? parsed.highContrast
           : defaultSettings.highContrast,
+      showDamageText:
+        typeof parsed.showDamageText === 'boolean'
+          ? parsed.showDamageText
+          : defaultSettings.showDamageText,
     };
   } catch {
     return defaultSettings;

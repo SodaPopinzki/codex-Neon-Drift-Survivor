@@ -13,6 +13,9 @@ const initialHud: HudState = {
   seed: 0,
   dashCooldownRemaining: 0,
   dashCooldownTotal: 2.5,
+  xp: 0,
+  xpToNext: 10,
+  weaponName: 'Pulse Blaster',
 };
 
 const initialDebug: DebugState = {
@@ -30,7 +33,11 @@ export function App() {
   const [paused, setPaused] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [restartToken, setRestartToken] = useState(0);
-  const [touchMovement, setTouchMovement] = useState<VirtualStickInput>({ x: 0, y: 0, active: false });
+  const [touchMovement, setTouchMovement] = useState<VirtualStickInput>({
+    x: 0,
+    y: 0,
+    active: false,
+  });
   const [touchDash, setTouchDash] = useState(false);
 
   const [settings, setSettings] = useState<Settings>(() => {
@@ -88,6 +95,15 @@ export function App() {
             onChange={(event) => updateSetting('highContrast', event.target.checked)}
           />
           High contrast
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.showDamageText}
+            onChange={(event) => updateSetting('showDamageText', event.target.checked)}
+          />
+          Floating damage
         </label>
       </div>
 

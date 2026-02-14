@@ -22,16 +22,23 @@ export class Renderer {
     this.drawDashRings(world, settings);
     this.drawTrail(world, settings);
     this.drawProjectileTrails(world, settings);
+    this.drawScrap(world, settings);
     this.drawProjectiles(world, settings);
     this.drawEnemies(world, settings);
+    this.drawHitBursts(world, settings);
+    this.drawDamageText(world, settings);
     this.drawPlayer(world, settings);
     this.ctx.restore();
   }
 
-  private drawBackground(width: number, height: number, world: WorldState, settings: Settings): void {
+  private drawBackground(
+    width: number,
+    height: number,
+    world: WorldState,
+    settings: Settings,
+  ): void {
     this.ctx.fillStyle = settings.highContrast ? '#000' : BACKGROUND_COLOR;
     this.ctx.fillRect(0, 0, width, height);
-
     const step = 56;
     this.ctx.strokeStyle = settings.highContrast ? 'rgba(80, 80, 80, 0.8)' : GRID_COLOR;
     this.ctx.lineWidth = 1;
@@ -42,29 +49,12 @@ export class Renderer {
       this.ctx.moveTo(gx, 0);
       this.ctx.lineTo(gx, height);
     }
-
     for (let y = -step; y < height + step; y += step) {
       const gy = y + world.gridOffset.y;
       this.ctx.moveTo(0, gy);
       this.ctx.lineTo(width, gy);
     }
-
     this.ctx.stroke();
-
-    if (!settings.highContrast) {
-      const vignette = this.ctx.createRadialGradient(
-        width * 0.5,
-        height * 0.5,
-        Math.min(width, height) * 0.2,
-        width * 0.5,
-        height * 0.5,
-        Math.max(width, height) * 0.7,
-      );
-      vignette.addColorStop(0, 'rgba(9, 18, 42, 0.0)');
-      vignette.addColorStop(1, 'rgba(0, 0, 0, 0.58)');
-      this.ctx.fillStyle = vignette;
-      this.ctx.fillRect(0, 0, width, height);
-    }
   }
 
   private drawDashRings(world: WorldState, settings: Settings): void {
@@ -72,7 +62,6 @@ export class Renderer {
       const progress = ring.age / ring.life;
       const alpha = 1 - progress;
       const radius = ring.maxRadius * progress;
-
       this.ctx.beginPath();
       this.ctx.arc(ring.x, ring.y, radius, 0, Math.PI * 2);
       this.ctx.lineWidth = 3;
@@ -85,7 +74,6 @@ export class Renderer {
 
   private drawTrail(world: WorldState, settings: Settings): void {
     if (world.trail.length < 2) return;
-
     this.ctx.lineJoin = 'round';
     this.ctx.lineCap = 'round';
 
@@ -94,12 +82,10 @@ export class Renderer {
       const point = world.trail[i];
       const alpha = point.life / 0.48;
       const intensity = Math.max(1, point.intensity);
-
       this.ctx.lineWidth = 2.4 + intensity * 1.25;
       this.ctx.strokeStyle = settings.highContrast
         ? `rgba(255, 255, 255, ${alpha})`
         : `rgba(78, 243, 255, ${Math.min(1, alpha * (0.75 + intensity * 0.25))})`;
-
       this.ctx.beginPath();
       this.ctx.moveTo(prev.x, prev.y);
       this.ctx.lineTo(point.x, point.y);
@@ -110,18 +96,31 @@ export class Renderer {
   private drawProjectileTrails(world: WorldState, settings: Settings): void {
     this.ctx.lineJoin = 'round';
     this.ctx.lineCap = 'round';
-
-    for (const projectile of world.projectiles) {
+    for (const projectile of world.enemyProjectiles) {
       for (let i = 1; i < projectile.trail.length; i += 1) {
         const prev = projectile.trail[i - 1];
         const point = projectile.trail[i];
         const alpha = point.life / 0.3;
-
         this.ctx.lineWidth = 1.6 + point.intensity;
         this.ctx.strokeStyle = settings.highContrast
           ? `rgba(255,255,255,${alpha * 0.8})`
-          : `rgba(251, 122, 255, ${alpha * 0.75})`;
+          : `rgba(255, 160, 80, ${alpha * 0.75})`;
+        this.ctx.beginPath();
+        this.ctx.moveTo(prev.x, prev.y);
+        this.ctx.lineTo(point.x, point.y);
+        this.ctx.stroke();
+      }
+    }
 
+    for (const projectile of world.playerProjectiles) {
+      for (let i = 1; i < projectile.trail.length; i += 1) {
+        const prev = projectile.trail[i - 1];
+        const point = projectile.trail[i];
+        const alpha = point.life / 0.22;
+        this.ctx.lineWidth = 1.9;
+        this.ctx.strokeStyle = settings.highContrast
+          ? `rgba(255,255,255,${alpha * 0.9})`
+          : `rgba(119, 216, 255, ${alpha * 0.9})`;
         this.ctx.beginPath();
         this.ctx.moveTo(prev.x, prev.y);
         this.ctx.lineTo(point.x, point.y);
@@ -131,15 +130,26 @@ export class Renderer {
   }
 
   private drawProjectiles(world: WorldState, settings: Settings): void {
-    for (const projectile of world.projectiles) {
-      const glow = settings.highContrast ? 'rgba(255,255,255,0.35)' : 'rgba(251, 122, 255, 0.45)';
-      this.ctx.shadowBlur = 18;
-      this.ctx.shadowColor = glow;
+    for (const projectile of world.enemyProjectiles) {
       this.ctx.beginPath();
       this.ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
-      this.ctx.fillStyle = settings.highContrast ? '#fff' : '#ff9dff';
+      this.ctx.fillStyle = settings.highContrast ? '#fff' : '#ffa783';
       this.ctx.fill();
-      this.ctx.shadowBlur = 0;
+    }
+    for (const projectile of world.playerProjectiles) {
+      this.ctx.beginPath();
+      this.ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
+      this.ctx.fillStyle = settings.highContrast ? '#fff' : '#8ce7ff';
+      this.ctx.fill();
+    }
+  }
+
+  private drawScrap(world: WorldState, settings: Settings): void {
+    for (const pickup of world.scrap) {
+      this.ctx.beginPath();
+      this.ctx.arc(pickup.x, pickup.y, pickup.radius, 0, Math.PI * 2);
+      this.ctx.fillStyle = settings.highContrast ? '#fff' : '#87ff96';
+      this.ctx.fill();
     }
   }
 
@@ -147,7 +157,6 @@ export class Renderer {
     for (const enemy of world.enemies) {
       this.ctx.save();
       this.ctx.translate(enemy.x, enemy.y);
-
       if (enemy.type === 'glider') {
         this.ctx.strokeStyle = settings.highContrast ? '#fff' : '#80ff7a';
         this.ctx.fillStyle = settings.highContrast ? '#000' : 'rgba(38, 255, 120, 0.22)';
@@ -168,60 +177,69 @@ export class Renderer {
         this.ctx.arc(0, 0, enemy.radius, 0, Math.PI * 2);
         this.ctx.fill();
         this.ctx.stroke();
-
-        this.ctx.beginPath();
-        this.ctx.moveTo(-enemy.radius * 0.7, -enemy.radius * 0.45);
-        this.ctx.lineTo(enemy.radius * 1.2, 0);
-        this.ctx.lineTo(-enemy.radius * 0.7, enemy.radius * 0.45);
-        this.ctx.closePath();
-        this.ctx.fillStyle = settings.highContrast ? '#fff' : '#ffd9a1';
-        this.ctx.fill();
       } else {
         const charging = enemy.windupRemaining > 0 || enemy.chargeRemaining > 0;
         this.ctx.strokeStyle = settings.highContrast ? '#fff' : charging ? '#ff4b7a' : '#ff6f43';
-        this.ctx.fillStyle = settings.highContrast ? '#000' : charging ? 'rgba(255, 75, 122, 0.3)' : 'rgba(255, 111, 67, 0.25)';
+        this.ctx.fillStyle = settings.highContrast
+          ? '#000'
+          : charging
+            ? 'rgba(255, 75, 122, 0.3)'
+            : 'rgba(255, 111, 67, 0.25)';
         this.ctx.lineWidth = 3;
         this.ctx.beginPath();
         this.ctx.rect(-enemy.radius, -enemy.radius, enemy.radius * 2, enemy.radius * 2);
         this.ctx.fill();
         this.ctx.stroke();
-
-        if (enemy.windupRemaining > 0) {
-          this.ctx.beginPath();
-          this.ctx.arc(0, 0, enemy.radius + 7, 0, Math.PI * 2);
-          this.ctx.strokeStyle = settings.highContrast ? '#fff' : 'rgba(255, 75, 122, 0.85)';
-          this.ctx.lineWidth = 1.5;
-          this.ctx.stroke();
-        }
       }
-
       this.ctx.restore();
+    }
+  }
+
+  private drawHitBursts(world: WorldState, settings: Settings): void {
+    for (const burst of world.hitBursts) {
+      const alpha = 1 - burst.age / burst.life;
+      this.ctx.beginPath();
+      this.ctx.arc(
+        burst.x,
+        burst.y,
+        burst.radius * (0.25 + burst.age / burst.life),
+        0,
+        Math.PI * 2,
+      );
+      this.ctx.strokeStyle = settings.highContrast
+        ? `rgba(255,255,255,${alpha})`
+        : `rgba(170, 245, 255, ${alpha})`;
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+    }
+  }
+
+  private drawDamageText(world: WorldState, settings: Settings): void {
+    for (const text of world.damageTexts) {
+      const alpha = 1 - text.age / text.life;
+      this.ctx.fillStyle = settings.highContrast
+        ? `rgba(255,255,255,${alpha})`
+        : text.crit
+          ? `rgba(255, 226, 127, ${alpha})`
+          : `rgba(232, 246, 255, ${alpha})`;
+      this.ctx.font = text.crit ? 'bold 14px Inter, sans-serif' : '12px Inter, sans-serif';
+      this.ctx.fillText(`${Math.round(text.value)}`, text.x, text.y);
     }
   }
 
   private drawPlayer(world: WorldState, settings: Settings): void {
     const { player } = world;
-
     this.ctx.save();
     this.ctx.translate(player.x, player.y);
     this.ctx.rotate(player.angle + Math.PI / 2);
-
     this.ctx.beginPath();
     this.ctx.moveTo(0, -player.radius);
     this.ctx.lineTo(player.radius * 0.7, player.radius);
     this.ctx.lineTo(-player.radius * 0.7, player.radius);
     this.ctx.closePath();
-
     const isHitFlash = world.playerFlashRemaining > 0;
     this.ctx.fillStyle = isHitFlash ? '#ff637a' : settings.highContrast ? '#fff' : PLAYER_COLOR;
     this.ctx.fill();
-
-    if (!settings.highContrast && player.invulnRemaining > 0) {
-      this.ctx.strokeStyle = `rgba(255, 120, 220, ${0.5 + player.invulnRemaining})`;
-      this.ctx.lineWidth = 2;
-      this.ctx.stroke();
-    }
-
     this.ctx.restore();
   }
 }
