@@ -16,9 +16,13 @@ export class Renderer {
     const { canvas } = this.ctx;
     this.ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    this.ctx.save();
+    this.ctx.translate(world.cameraShake.x, world.cameraShake.y);
     this.drawBackground(canvas.width, canvas.height, world, settings);
+    this.drawDashRings(world, settings);
     this.drawTrail(world, settings);
     this.drawPlayer(world, settings);
+    this.ctx.restore();
   }
 
   private drawBackground(width: number, height: number, world: WorldState, settings: Settings): void {
@@ -60,21 +64,38 @@ export class Renderer {
     }
   }
 
+  private drawDashRings(world: WorldState, settings: Settings): void {
+    for (const ring of world.dashRings) {
+      const progress = ring.age / ring.life;
+      const alpha = 1 - progress;
+      const radius = ring.maxRadius * progress;
+
+      this.ctx.beginPath();
+      this.ctx.arc(ring.x, ring.y, radius, 0, Math.PI * 2);
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeStyle = settings.highContrast
+        ? `rgba(255,255,255,${alpha})`
+        : `rgba(140, 249, 255, ${alpha * 0.9})`;
+      this.ctx.stroke();
+    }
+  }
+
   private drawTrail(world: WorldState, settings: Settings): void {
     if (world.trail.length < 2) return;
 
-    this.ctx.lineWidth = 3;
     this.ctx.lineJoin = 'round';
     this.ctx.lineCap = 'round';
 
     for (let i = 1; i < world.trail.length; i += 1) {
       const prev = world.trail[i - 1];
       const point = world.trail[i];
-      const alpha = point.life / 0.45;
+      const alpha = point.life / 0.48;
+      const intensity = Math.max(1, point.intensity);
 
+      this.ctx.lineWidth = 2.4 + intensity * 1.25;
       this.ctx.strokeStyle = settings.highContrast
         ? `rgba(255, 255, 255, ${alpha})`
-        : `rgba(78, 243, 255, ${alpha * 0.9})`;
+        : `rgba(78, 243, 255, ${Math.min(1, alpha * (0.75 + intensity * 0.25))})`;
 
       this.ctx.beginPath();
       this.ctx.moveTo(prev.x, prev.y);
@@ -98,6 +119,13 @@ export class Renderer {
 
     this.ctx.fillStyle = settings.highContrast ? '#fff' : PLAYER_COLOR;
     this.ctx.fill();
+
+    if (!settings.highContrast && player.invulnRemaining > 0) {
+      this.ctx.strokeStyle = `rgba(255, 120, 220, ${0.5 + player.invulnRemaining})`;
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+    }
+
     this.ctx.restore();
   }
 }

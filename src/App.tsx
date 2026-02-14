@@ -11,6 +11,8 @@ const initialHud: HudState = {
   level: 1,
   hp: 100,
   seed: 0,
+  dashCooldownRemaining: 0,
+  dashCooldownTotal: 2.5,
 };
 
 const initialDebug: DebugState = {

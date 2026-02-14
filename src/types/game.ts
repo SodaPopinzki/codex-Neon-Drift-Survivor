@@ -9,6 +9,8 @@ export type HudState = {
   level: number;
   hp: number;
   seed: number;
+  dashCooldownRemaining: number;
+  dashCooldownTotal: number;
 };
 
 export type VirtualStickInput = {

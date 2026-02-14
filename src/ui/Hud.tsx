@@ -6,6 +6,11 @@ type HudProps = {
 };
 
 export function Hud({ hud, debug }: HudProps) {
+  const cooldownProgress =
+    hud.dashCooldownTotal > 0
+      ? 1 - Math.min(1, hud.dashCooldownRemaining / hud.dashCooldownTotal)
+      : 1;
+
   return (
     <>
       <header className="top-bar">
@@ -14,6 +19,13 @@ export function Hud({ hud, debug }: HudProps) {
         <span>HP: {hud.hp}</span>
         <span>Seed: {hud.seed}</span>
       </header>
+
+      <div className="dash-cooldown" aria-label="Dash cooldown">
+        <span>Dash</span>
+        <div className="dash-cooldown-track">
+          <div className="dash-cooldown-fill" style={{ transform: `scaleX(${cooldownProgress})` }} />
+        </div>
+      </div>
 
       {debug.enabled ? (
         <aside className="debug-overlay">
