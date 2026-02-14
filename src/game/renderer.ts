@@ -23,10 +23,12 @@ export class Renderer {
     this.drawTrail(world, settings);
     this.drawProjectileTrails(world, settings);
     this.drawScrap(world, settings);
+    this.drawMines(world, settings);
     this.drawProjectiles(world, settings);
     this.drawEnemies(world, settings);
     this.drawHitBursts(world, settings);
     this.drawDamageText(world, settings);
+    this.drawSawBlades(world, settings);
     this.drawPlayer(world, settings);
     this.ctx.restore();
   }
@@ -224,6 +226,31 @@ export class Renderer {
           : `rgba(232, 246, 255, ${alpha})`;
       this.ctx.font = text.crit ? 'bold 14px Inter, sans-serif' : '12px Inter, sans-serif';
       this.ctx.fillText(`${Math.round(text.value)}`, text.x, text.y);
+    }
+  }
+
+
+  private drawMines(world: WorldState, settings: Settings): void {
+    for (const mine of world.mines) {
+      this.ctx.beginPath();
+      this.ctx.arc(mine.x, mine.y, mine.radius, 0, Math.PI * 2);
+      this.ctx.fillStyle = settings.highContrast ? '#fff' : mine.armTime > 0 ? 'rgba(255,180,130,0.75)' : '#ff8a6a';
+      this.ctx.fill();
+    }
+  }
+
+  private drawSawBlades(world: WorldState, settings: Settings): void {
+    for (const saw of world.sawBlades) {
+      const x = world.player.x + Math.cos(saw.angle) * saw.orbitRadius;
+      const y = world.player.y + Math.sin(saw.angle) * saw.orbitRadius;
+      this.ctx.save();
+      this.ctx.translate(x, y);
+      this.ctx.rotate(saw.angle * 2);
+      this.ctx.beginPath();
+      this.ctx.rect(-saw.radius, -3, saw.radius * 2, 6);
+      this.ctx.fillStyle = settings.highContrast ? '#fff' : '#ffc25f';
+      this.ctx.fill();
+      this.ctx.restore();
     }
   }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Engine } from '../engine/Engine';
-import type { DebugState, HudState, Settings, VirtualStickInput } from '../types/game';
+import type { DebugState, DraftOption, HudState, Settings, UpgradeInventoryItem, VirtualStickInput } from '../types/game';
 
 type GameCanvasProps = {
   paused: boolean;
@@ -11,6 +11,9 @@ type GameCanvasProps = {
   onHudChange: (state: HudState) => void;
   onDebugChange: (state: DebugState) => void;
   onTogglePause: () => void;
+  onDraftChange: (active: boolean, options: DraftOption[]) => void;
+  onInventoryChange: (items: UpgradeInventoryItem[]) => void;
+  onEngineReady: (engine: Engine | null) => void;
   restartToken: number;
 };
 
@@ -23,6 +26,9 @@ export function GameCanvas({
   onHudChange,
   onDebugChange,
   onTogglePause,
+  onDraftChange,
+  onInventoryChange,
+  onEngineReady,
   restartToken,
 }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -33,6 +39,9 @@ export function GameCanvas({
   const hudCallbackRef = useRef(onHudChange);
   const debugCallbackRef = useRef(onDebugChange);
   const togglePauseRef = useRef(onTogglePause);
+  const draftRef = useRef(onDraftChange);
+  const inventoryRef = useRef(onInventoryChange);
+  const engineReadyRef = useRef(onEngineReady);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -59,6 +68,18 @@ export function GameCanvas({
   }, [onTogglePause]);
 
   useEffect(() => {
+    draftRef.current = onDraftChange;
+  }, [onDraftChange]);
+
+  useEffect(() => {
+    inventoryRef.current = onInventoryChange;
+  }, [onInventoryChange]);
+
+  useEffect(() => {
+    engineReadyRef.current = onEngineReady;
+  }, [onEngineReady]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -69,11 +90,14 @@ export function GameCanvas({
       onHudChange: (hud) => hudCallbackRef.current(hud),
       onDebugChange: (debug) => debugCallbackRef.current(debug),
       onPauseToggle: () => togglePauseRef.current(),
+      onDraftChange: (active, options) => draftRef.current(active, options),
+      onInventoryChange: (items) => inventoryRef.current(items),
       isPaused: () => pauseRef.current,
       isGameOver: () => gameOverRef.current,
       getSettings: () => settingsRef.current,
     });
     engineRef.current = engine;
+    engineReadyRef.current(engine);
 
     engine.start();
 
@@ -84,6 +108,7 @@ export function GameCanvas({
       engine.stop();
       window.removeEventListener('resize', resize);
       engineRef.current = null;
+      engineReadyRef.current(null);
     };
   }, [restartToken]);
 

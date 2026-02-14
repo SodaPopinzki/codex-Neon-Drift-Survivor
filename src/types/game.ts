@@ -17,6 +17,28 @@ export type HudState = {
   weaponName: string;
 };
 
+export type UpgradeRarity = 'common' | 'rare' | 'epic';
+
+export type DraftOption = {
+  id: string;
+  title: string;
+  description: string;
+  rarity: UpgradeRarity;
+  icon: string;
+};
+
+export type UpgradeInventoryItem = {
+  id: string;
+  icon: string;
+  label: string;
+  stacks: number;
+};
+
+export type DraftState = {
+  active: boolean;
+  options: DraftOption[];
+};
+
 export type VirtualStickInput = {
   x: number;
   y: number;

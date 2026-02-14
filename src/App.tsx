@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
+import type { Engine } from './engine/Engine';
 import { GameCanvas } from './game/GameCanvas';
 import { defaultSettings, loadSettings, saveSettings } from './game/settings';
 import { Hud } from './ui/Hud';
-import { Overlay } from './ui/Overlays';
+import { DraftOverlay, Overlay, UpgradeInventoryPanel } from './ui/Overlays';
 import { TouchControls } from './ui/TouchControls';
-import type { DebugState, HudState, Settings, VirtualStickInput } from './types/game';
+import type { DebugState, DraftOption, HudState, Settings, UpgradeInventoryItem, VirtualStickInput } from './types/game';
 
 const initialHud: HudState = {
   timeSeconds: 0,
@@ -40,6 +41,11 @@ export function App() {
   });
   const [touchDash, setTouchDash] = useState(false);
 
+  const [draftActive, setDraftActive] = useState(false);
+  const [draftOptions, setDraftOptions] = useState<DraftOption[]>([]);
+  const [upgradeInventory, setUpgradeInventory] = useState<UpgradeInventoryItem[]>([]);
+  const [engine, setEngine] = useState<Engine | null>(null);
+
   const [settings, setSettings] = useState<Settings>(() => {
     if (typeof window === 'undefined') return defaultSettings;
     return loadSettings();
@@ -61,6 +67,9 @@ export function App() {
     setHud(initialHud);
     setPaused(false);
     setGameOver(false);
+    setDraftActive(false);
+    setDraftOptions([]);
+    setUpgradeInventory([]);
     setRestartToken((token) => token + 1);
   };
 
@@ -121,11 +130,19 @@ export function App() {
         }}
         onDebugChange={setDebug}
         onTogglePause={() => setPaused((value) => !value)}
+        onDraftChange={(active, options) => {
+          setDraftActive(active);
+          setDraftOptions(options);
+        }}
+        onInventoryChange={setUpgradeInventory}
+        onEngineReady={setEngine}
         restartToken={restartToken}
       />
 
-      {paused && !gameOver ? <Overlay title="Paused" subtitle="Press Esc to resume" /> : null}
+      {paused && !gameOver && !draftActive ? <Overlay title="Paused" subtitle="Press Esc to resume" /> : null}
       {gameOver ? <Overlay title="Game Over" subtitle="Press R to restart with new seed" /> : null}
+      {draftActive ? <DraftOverlay options={draftOptions} onPick={(index) => engine?.chooseDraftOption(index)} /> : null}
+      <UpgradeInventoryPanel items={upgradeInventory} />
 
       <button className="restart-button" type="button" onClick={restart}>
         Restart (R / Shift+R)
