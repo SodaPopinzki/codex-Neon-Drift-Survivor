@@ -1,6 +1,10 @@
 :root {
   color-scheme: dark;
-  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    sans-serif;
 }
 
 * {
@@ -47,7 +51,6 @@ body,
   font-weight: 600;
 }
 
-
 .dash-cooldown {
   position: absolute;
   z-index: 3;
@@ -81,7 +84,7 @@ body,
 .settings-row {
   position: absolute;
   z-index: 3;
-  top: 128px;
+  top: 174px;
   left: 12px;
   display: flex;
   gap: 12px;
@@ -103,7 +106,7 @@ body,
   position: absolute;
   z-index: 3;
   left: 12px;
-  top: 178px;
+  top: 252px;
   display: grid;
   gap: 4px;
   min-width: 160px;
@@ -194,4 +197,39 @@ body,
   .touch-controls {
     opacity: 0.6;
   }
+}
+
+.xp-bar {
+  position: absolute;
+  z-index: 3;
+  top: 112px;
+  left: 12px;
+  display: grid;
+  gap: 6px;
+  width: 220px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 45%);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.xp-bar-header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.xp-bar-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 18%);
+}
+
+.xp-bar-fill {
+  width: 100%;
+  height: 100%;
+  transform-origin: left;
+  background: linear-gradient(90deg, #66ff99 0%, #66d9ff 100%);
 }

@@ -50,6 +50,9 @@ export class GameState {
       seed: 0,
       dashCooldownRemaining: 0,
       dashCooldownTotal: 2.5,
+      xp: 0,
+      xpToNext: 10,
+      weaponName: 'Pulse Blaster',
     };
   }
 
