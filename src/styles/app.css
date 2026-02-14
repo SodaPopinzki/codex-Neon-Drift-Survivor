@@ -233,3 +233,69 @@ body,
   transform-origin: left;
   background: linear-gradient(90deg, #66ff99 0%, #66d9ff 100%);
 }
+
+.draft-overlay {
+  z-index: 6;
+  background: rgb(2 5 12 / 80%);
+  padding: 16px;
+}
+
+.draft-panel {
+  width: min(960px, 100%);
+  display: grid;
+  gap: 12px;
+}
+
+.draft-panel h2,
+.draft-panel p {
+  margin: 0;
+  text-align: center;
+}
+
+.draft-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.draft-card {
+  text-align: left;
+  border: 1px solid #4a5a75;
+  border-radius: 10px;
+  background: rgb(20 30 46 / 95%);
+  color: inherit;
+  padding: 12px;
+}
+
+.draft-top {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+}
+
+.rarity-common { border-color: #7d8ea8; }
+.rarity-rare { border-color: #66beff; }
+.rarity-epic { border-color: #d78dff; }
+.rarity-label { text-transform: capitalize; font-size: 12px; opacity: 0.9; }
+
+.upgrade-inventory {
+  position: absolute;
+  right: 12px;
+  top: 56px;
+  z-index: 4;
+  width: 250px;
+  max-height: 55vh;
+  overflow: auto;
+  background: rgb(0 0 0 / 50%);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.upgrade-inventory h3 { margin: 0 0 8px; }
+.upgrade-inventory ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.upgrade-inventory li { display: grid; grid-template-columns: 20px 1fr auto; gap: 6px; align-items: center; font-size: 13px; }
+
+@media (max-width: 720px) {
+  .draft-cards { grid-template-columns: 1fr; }
+  .upgrade-inventory { width: min(240px, calc(100% - 24px)); top: auto; bottom: 140px; }
+}

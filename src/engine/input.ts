@@ -11,6 +11,7 @@ type KeyState = {
   pausePressed: boolean;
   restartMode: RestartMode | null;
   debugPressed: boolean;
+  draftChoice: 0 | 1 | 2 | null;
 };
 
 export class InputController {
@@ -23,6 +24,7 @@ export class InputController {
     pausePressed: false,
     restartMode: null,
     debugPressed: false,
+    draftChoice: null,
   };
 
   private touchStick: VirtualStickInput = { x: 0, y: 0, active: false };
@@ -63,6 +65,12 @@ export class InputController {
     if (!this.keyState.debugPressed) return false;
     this.keyState.debugPressed = false;
     return true;
+  }
+
+  consumeDraftChoice(): 0 | 1 | 2 | null {
+    const choice = this.keyState.draftChoice;
+    this.keyState.draftChoice = null;
+    return choice;
   }
 
   getMovementVector(): { x: number; y: number } {
@@ -124,6 +132,15 @@ export class InputController {
         break;
       case 'Backquote':
         this.keyState.debugPressed = true;
+        break;
+      case 'Digit1':
+        this.keyState.draftChoice = 0;
+        break;
+      case 'Digit2':
+        this.keyState.draftChoice = 1;
+        break;
+      case 'Digit3':
+        this.keyState.draftChoice = 2;
         break;
       default:
         break;
