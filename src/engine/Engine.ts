@@ -10,6 +10,37 @@ type TrailPoint = Vec2 & { life: number; intensity: number };
 
 type DashRing = Vec2 & { age: number; life: number; maxRadius: number };
 
+type EnemyType = 'glider' | 'shard' | 'ram';
+
+type EnemyState = {
+  id: number;
+  type: EnemyType;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  hp: number;
+  wobblePhase: number;
+  fireCooldown: number;
+  chargeCooldown: number;
+  windupRemaining: number;
+  chargeRemaining: number;
+  contactCooldown: number;
+};
+
+type EnemyProjectile = {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  life: number;
+  maxLife: number;
+  trail: TrailPoint[];
+};
+
 type WorldState = {
   width: number;
   height: number;
@@ -30,6 +61,13 @@ type WorldState = {
   };
   trail: TrailPoint[];
   dashRings: DashRing[];
+  enemies: EnemyState[];
+  projectiles: EnemyProjectile[];
+  nextEnemyId: number;
+  nextProjectileId: number;
+  spawnTimer: number;
+  playerGraceRemaining: number;
+  playerFlashRemaining: number;
 };
 
 type EngineSystem = (dt: number, world: WorldState) => void;
@@ -58,6 +96,13 @@ const SOFT_BOUND_MARGIN = 96;
 const SOFT_BOUND_FORCE = 430;
 
 const TRAIL_LIFE = 0.48;
+const PLAYER_HIT_GRACE = 0.5;
+const PLAYER_FLASH_DURATION = 0.12;
+const SAFE_SPAWN_RADIUS = 230;
+const BASE_SPAWN_INTERVAL = 2.2;
+const MIN_SPAWN_INTERVAL = 0.55;
+const PROJECTILE_SPEED = 150;
+const PROJECTILE_LIFE = 7;
 
 export class Engine {
   private readonly canvas: HTMLCanvasElement;
@@ -84,7 +129,15 @@ export class Engine {
     this.restart('new_seed');
 
     this.renderer = new Renderer(this.ctx);
-    this.systems = [this.movementSystem, this.trailSystem, this.effectsSystem];
+    this.systems = [
+      this.movementSystem,
+      this.spawnerSystem,
+      this.enemySystem,
+      this.projectileSystem,
+      this.combatSystem,
+      this.trailSystem,
+      this.effectsSystem,
+    ];
 
     this.loop = new GameLoop({
       update: this.update,
@@ -141,6 +194,13 @@ export class Engine {
     };
     this.world.trail = [];
     this.world.dashRings = [];
+    this.world.enemies = [];
+    this.world.projectiles = [];
+    this.world.nextEnemyId = 1;
+    this.world.nextProjectileId = 1;
+    this.world.spawnTimer = 0.8;
+    this.world.playerGraceRemaining = 0;
+    this.world.playerFlashRemaining = 0;
     this.world.cameraShake = { x: 0, y: 0, strength: 0 };
     this.emitHud();
   }
@@ -275,6 +335,190 @@ export class Engine {
       .slice(-80);
   };
 
+  private spawnerSystem = (dt: number, world: WorldState): void => {
+    world.spawnTimer -= dt;
+    if (world.spawnTimer > 0) {
+      return;
+    }
+
+    const danger = Math.min(1, world.elapsedSeconds / 150);
+    const spawnCount = world.elapsedSeconds > 70 ? 2 : 1;
+
+    for (let i = 0; i < spawnCount; i += 1) {
+      world.enemies.push(this.createEnemy(world, danger));
+    }
+
+    const interval = BASE_SPAWN_INTERVAL - (BASE_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) * danger;
+    world.spawnTimer = interval * (0.8 + this.random() * 0.5);
+  };
+
+  private enemySystem = (dt: number, world: WorldState): void => {
+    const { player } = world;
+
+    for (const enemy of world.enemies) {
+      enemy.contactCooldown = Math.max(0, enemy.contactCooldown - dt);
+      const toPlayerX = player.x - enemy.x;
+      const toPlayerY = player.y - enemy.y;
+      const distance = Math.hypot(toPlayerX, toPlayerY) || 1;
+      const dirX = toPlayerX / distance;
+      const dirY = toPlayerY / distance;
+
+      if (enemy.type === 'glider') {
+        enemy.wobblePhase += dt * 6;
+        const wobble = Math.sin(enemy.wobblePhase) * 0.65;
+        const tangentX = -dirY;
+        const tangentY = dirX;
+        enemy.vx = dirX * 120 + tangentX * 70 * wobble;
+        enemy.vy = dirY * 120 + tangentY * 70 * wobble;
+      } else if (enemy.type === 'shard') {
+        enemy.fireCooldown -= dt;
+        const targetDistance = 245;
+        const stretch = distance - targetDistance;
+        const approach = clamp(stretch / targetDistance, -1, 1);
+        const tangentX = -dirY;
+        const tangentY = dirX;
+        enemy.vx = dirX * approach * 112 + tangentX * 42;
+        enemy.vy = dirY * approach * 112 + tangentY * 42;
+
+        if (enemy.fireCooldown <= 0 && distance < 500) {
+          const lead = 0.5;
+          const targetX = player.x + player.vx * lead;
+          const targetY = player.y + player.vy * lead;
+          const shotX = targetX - enemy.x;
+          const shotY = targetY - enemy.y;
+          const shotDistance = Math.hypot(shotX, shotY) || 1;
+
+          world.projectiles.push({
+            id: world.nextProjectileId++,
+            x: enemy.x,
+            y: enemy.y,
+            vx: (shotX / shotDistance) * PROJECTILE_SPEED,
+            vy: (shotY / shotDistance) * PROJECTILE_SPEED,
+            radius: 6,
+            life: PROJECTILE_LIFE,
+            maxLife: PROJECTILE_LIFE,
+            trail: [],
+          });
+
+          enemy.fireCooldown = 1.3 + this.random() * 1.1;
+        }
+      } else {
+        enemy.chargeCooldown -= dt;
+        const wasWindingUp = enemy.windupRemaining > 0;
+        enemy.windupRemaining = Math.max(0, enemy.windupRemaining - dt);
+        enemy.chargeRemaining = Math.max(0, enemy.chargeRemaining - dt);
+
+        if (enemy.chargeRemaining > 0) {
+          const friction = Math.exp(-dt * 0.65);
+          enemy.vx *= friction;
+          enemy.vy *= friction;
+        } else if (wasWindingUp && enemy.windupRemaining <= 0) {
+          enemy.chargeRemaining = 0.42;
+          enemy.vx = dirX * 420;
+          enemy.vy = dirY * 420;
+        } else if (enemy.windupRemaining > 0) {
+          enemy.vx *= Math.exp(-dt * 6);
+          enemy.vy *= Math.exp(-dt * 6);
+        } else {
+          enemy.vx = dirX * 95;
+          enemy.vy = dirY * 95;
+
+          if (enemy.chargeCooldown <= 0 && distance < 420) {
+            enemy.windupRemaining = 0.4;
+            enemy.chargeCooldown = 2.8 + this.random() * 1.2;
+          }
+        }
+      }
+
+      enemy.x += enemy.vx * dt;
+      enemy.y += enemy.vy * dt;
+      enemy.x = clamp(enemy.x, enemy.radius, world.width - enemy.radius);
+      enemy.y = clamp(enemy.y, enemy.radius, world.height - enemy.radius);
+    }
+  };
+
+  private projectileSystem = (dt: number, world: WorldState): void => {
+    world.projectiles = world.projectiles
+      .map((projectile) => {
+        const trailPoint: TrailPoint = { x: projectile.x, y: projectile.y, life: 0.3, intensity: 0.8 };
+        projectile.trail.push(trailPoint);
+        projectile.trail = projectile.trail
+          .map((point) => ({ ...point, life: point.life - dt }))
+          .filter((point) => point.life > 0)
+          .slice(-9);
+
+        return {
+          ...projectile,
+          x: projectile.x + projectile.vx * dt,
+          y: projectile.y + projectile.vy * dt,
+          life: projectile.life - dt,
+        };
+      })
+      .filter(
+        (projectile) =>
+          projectile.life > 0 &&
+          projectile.x > -50 &&
+          projectile.y > -50 &&
+          projectile.x < world.width + 50 &&
+          projectile.y < world.height + 50,
+      );
+  };
+
+  private combatSystem = (dt: number, world: WorldState): void => {
+    const { player } = world;
+    world.playerGraceRemaining = Math.max(0, world.playerGraceRemaining - dt);
+    world.playerFlashRemaining = Math.max(0, world.playerFlashRemaining - dt);
+
+    for (const enemy of world.enemies) {
+      if (enemy.contactCooldown > 0) {
+        continue;
+      }
+
+      const dx = player.x - enemy.x;
+      const dy = player.y - enemy.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance >= player.radius + enemy.radius) {
+        continue;
+      }
+
+      this.applyPlayerHit(world, enemy.type === 'ram' ? 24 : 14, { x: dx, y: dy });
+      enemy.contactCooldown = 0.35;
+    }
+
+    world.projectiles = world.projectiles.filter((projectile) => {
+      const dx = player.x - projectile.x;
+      const dy = player.y - projectile.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance >= player.radius + projectile.radius) {
+        return true;
+      }
+
+      this.applyPlayerHit(world, 10, { x: dx, y: dy });
+      return false;
+    });
+  };
+
+  private applyPlayerHit(world: WorldState, rawDamage: number, sourceDelta: Vec2): void {
+    if (world.player.invulnRemaining > 0 || world.player.hp <= 0) {
+      return;
+    }
+
+    const graceScale = world.playerGraceRemaining > 0 ? 0.35 : 1;
+    const damage = rawDamage * graceScale;
+    world.player.hp = Math.max(0, world.player.hp - damage);
+    world.playerGraceRemaining = PLAYER_HIT_GRACE;
+    world.playerFlashRemaining = PLAYER_FLASH_DURATION;
+
+    const length = Math.hypot(sourceDelta.x, sourceDelta.y) || 1;
+    const push = 180;
+    world.player.vx += (sourceDelta.x / length) * push;
+    world.player.vy += (sourceDelta.y / length) * push;
+
+    if (this.callbacks.getSettings().screenShake) {
+      world.cameraShake.strength = Math.max(world.cameraShake.strength, 7);
+    }
+  }
+
   private effectsSystem = (dt: number, world: WorldState): void => {
     world.dashRings = world.dashRings
       .map((ring) => ({ ...ring, age: ring.age + dt }))
@@ -306,7 +550,7 @@ export class Engine {
     this.callbacks.onDebugChange({
       fps: this.fps,
       dtMs: dt * 1000,
-      entities: 1,
+      entities: 1 + this.world.enemies.length + this.world.projectiles.length,
       seed: this.world.seed,
       paused: this.callbacks.isPaused(),
       enabled: this.debugEnabled,
@@ -334,6 +578,83 @@ export class Engine {
       },
       trail: [],
       dashRings: [],
+      enemies: [],
+      projectiles: [],
+      nextEnemyId: 1,
+      nextProjectileId: 1,
+      spawnTimer: 1,
+      playerGraceRemaining: 0,
+      playerFlashRemaining: 0,
+    };
+  }
+
+  private createEnemy(world: WorldState, danger: number): EnemyState {
+    const roll = this.random();
+    let type: EnemyType;
+
+    if (danger < 0.22) {
+      type = 'glider';
+    } else if (danger < 0.58) {
+      type = roll < 0.7 ? 'glider' : 'shard';
+    } else {
+      type = roll < 0.45 ? 'glider' : roll < 0.75 ? 'shard' : 'ram';
+    }
+
+    const spawn = this.findSpawnPoint(world);
+    const radius = type === 'ram' ? 16 : type === 'shard' ? 13 : 12;
+
+    return {
+      id: world.nextEnemyId++,
+      type,
+      x: spawn.x,
+      y: spawn.y,
+      vx: 0,
+      vy: 0,
+      radius,
+      hp: 1,
+      wobblePhase: this.random() * Math.PI * 2,
+      fireCooldown: 1 + this.random() * 1.5,
+      chargeCooldown: 1.3 + this.random() * 1.2,
+      windupRemaining: 0,
+      chargeRemaining: 0,
+      contactCooldown: 0,
+    };
+  }
+
+  private findSpawnPoint(world: WorldState): Vec2 {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const edge = Math.floor(this.random() * 4);
+      const margin = 30;
+      let x = 0;
+      let y = 0;
+
+      if (edge === 0) {
+        x = -margin;
+        y = this.random() * world.height;
+      } else if (edge === 1) {
+        x = world.width + margin;
+        y = this.random() * world.height;
+      } else if (edge === 2) {
+        x = this.random() * world.width;
+        y = -margin;
+      } else {
+        x = this.random() * world.width;
+        y = world.height + margin;
+      }
+
+      const distToPlayer = Math.hypot(x - world.player.x, y - world.player.y);
+      if (distToPlayer >= SAFE_SPAWN_RADIUS) {
+        return {
+          x: clamp(x, 10, world.width - 10),
+          y: clamp(y, 10, world.height - 10),
+        };
+      }
+    }
+
+    const angle = this.random() * Math.PI * 2;
+    return {
+      x: clamp(world.player.x + Math.cos(angle) * SAFE_SPAWN_RADIUS, 10, world.width - 10),
+      y: clamp(world.player.y + Math.sin(angle) * SAFE_SPAWN_RADIUS, 10, world.height - 10),
     };
   }
 }
