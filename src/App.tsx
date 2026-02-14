@@ -113,6 +113,15 @@ export function App() {
           />
           Screen shake
         </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.hitStop}
+            onChange={(event) => updateSetting('hitStop', event.target.checked)}
+          />
+          Hit stop
+        </label>
         <label>
           <input
             type="checkbox"
@@ -120,6 +129,15 @@ export function App() {
             onChange={(event) => updateSetting('highContrast', event.target.checked)}
           />
           High contrast
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.reduceMotion}
+            onChange={(event) => updateSetting('reduceMotion', event.target.checked)}
+          />
+          Reduce motion
         </label>
 
         <label>

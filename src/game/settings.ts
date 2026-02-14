@@ -5,7 +5,9 @@ const SETTINGS_STORAGE_KEY = 'neon-drift-survivor:settings';
 export const defaultSettings: Settings = {
   volume: 0.5,
   screenShake: true,
+  hitStop: true,
   highContrast: false,
+  reduceMotion: false,
   showDamageText: true,
 };
 
@@ -25,10 +27,15 @@ export function loadSettings(): Settings {
       ),
       screenShake:
         typeof parsed.screenShake === 'boolean' ? parsed.screenShake : defaultSettings.screenShake,
+      hitStop: typeof parsed.hitStop === 'boolean' ? parsed.hitStop : defaultSettings.hitStop,
       highContrast:
         typeof parsed.highContrast === 'boolean'
           ? parsed.highContrast
           : defaultSettings.highContrast,
+      reduceMotion:
+        typeof parsed.reduceMotion === 'boolean'
+          ? parsed.reduceMotion
+          : defaultSettings.reduceMotion,
       showDamageText:
         typeof parsed.showDamageText === 'boolean'
           ? parsed.showDamageText

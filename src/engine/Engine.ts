@@ -8,6 +8,7 @@ import type {
   VirtualStickInput,
 } from '../types/game';
 import { GameLoop } from './gameLoop';
+import { AudioManager } from './audio';
 import { InputController, type RestartMode } from './input';
 import { createSeed, mulberry32 } from './rng';
 
@@ -116,6 +117,15 @@ type ScrapPickup = {
 
 type HitBurst = Vec2 & { age: number; life: number; radius: number };
 type DamageText = Vec2 & { age: number; life: number; value: number; crit: boolean };
+type ParticleKind = 'spark' | 'xp' | 'dash' | 'bloom';
+type Particle = Vec2 & {
+  vx: number;
+  vy: number;
+  age: number;
+  life: number;
+  size: number;
+  kind: ParticleKind;
+};
 
 type UpgradeChoice = DraftOption & { apply: (world: WorldState) => void; rarityWeight: number };
 
@@ -152,6 +162,7 @@ export type WorldState = {
   scrap: ScrapPickup[];
   hitBursts: HitBurst[];
   damageTexts: DamageText[];
+  particles: Particle[];
   nextEnemyId: number;
   nextProjectileId: number;
   nextPickupId: number;
@@ -227,6 +238,7 @@ const SCRAP_LIFE = 18;
 const WAVE_INTERVAL = 90;
 const WAVE_DURATION = 20;
 const BOSS_TIME = 360;
+const MAX_PARTICLES = 800;
 
 const STARTING_WEAPON: WeaponStats = {
   name: 'Pulse Blaster',
@@ -257,6 +269,11 @@ export class Engine {
   private draftOptions: UpgradeChoice[] = [];
   private draftActive = false;
   private inventory = new Map<string, UpgradeInventoryItem>();
+  private readonly audio = new AudioManager();
+  private hitStopRemaining = 0;
+  private readonly playerProjectilePool: PlayerProjectile[] = [];
+  private readonly enemyProjectilePool: EnemyProjectile[] = [];
+  private readonly particlePool: Particle[] = [];
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -365,6 +382,7 @@ export class Engine {
     this.world.scrap = [];
     this.world.hitBursts = [];
     this.world.damageTexts = [];
+    this.world.particles = [];
     this.world.nextEnemyId = 1;
     this.world.nextProjectileId = 1;
     this.world.nextPickupId = 1;
@@ -390,6 +408,7 @@ export class Engine {
       nextAt: WAVE_INTERVAL,
     };
     this.world.boss = { spawned: false, defeated: false, id: null };
+    this.hitStopRemaining = 0;
     this.inventory.clear();
     this.draftActive = false;
     this.draftOptions = [];
@@ -399,6 +418,7 @@ export class Engine {
   }
 
   private update = (dt: number): void => {
+    this.audio.setVolume(this.callbacks.getSettings().volume);
     if (this.input.consumePausePressed()) this.callbacks.onPauseToggle();
     if (this.input.consumeDebugToggle()) this.debugEnabled = !this.debugEnabled;
 
@@ -413,6 +433,14 @@ export class Engine {
     }
 
     if (this.callbacks.isPaused() || this.callbacks.isGameOver()) {
+      this.hitStopRemaining = 0;
+      this.emitDebug(dt);
+      return;
+    }
+
+    if (this.hitStopRemaining > 0) {
+      this.hitStopRemaining = Math.max(0, this.hitStopRemaining - dt);
+      this.emitHud();
       this.emitDebug(dt);
       return;
     }
@@ -484,8 +512,9 @@ export class Engine {
         life: 0.45,
         maxRadius: 92,
       });
-      if (this.callbacks.getSettings().screenShake)
-        world.cameraShake.strength = Math.max(world.cameraShake.strength, 13);
+      this.audio.play('dash');
+      this.spawnParticles(world, world.player.x, world.player.y, 'dash', 14);
+      if (this.shouldShake()) world.cameraShake.strength = Math.max(world.cameraShake.strength, 13);
     }
 
     const speed = Math.hypot(world.player.vx, world.player.vy);
@@ -660,17 +689,18 @@ export class Engine {
             y: player.y + player.vy * lead - enemy.y,
           };
           const shotDistance = Math.hypot(shot.x, shot.y) || 1;
-          world.enemyProjectiles.push({
-            id: world.nextProjectileId++,
-            x: enemy.x,
-            y: enemy.y,
-            vx: (shot.x / shotDistance) * ENEMY_PROJECTILE_SPEED,
-            vy: (shot.y / shotDistance) * ENEMY_PROJECTILE_SPEED,
-            radius: 6,
-            life: ENEMY_PROJECTILE_LIFE,
-            maxLife: ENEMY_PROJECTILE_LIFE,
-            trail: [],
-          });
+          world.enemyProjectiles.push(
+            this.allocEnemyProjectile({
+              id: world.nextProjectileId++,
+              x: enemy.x,
+              y: enemy.y,
+              vx: (shot.x / shotDistance) * ENEMY_PROJECTILE_SPEED,
+              vy: (shot.y / shotDistance) * ENEMY_PROJECTILE_SPEED,
+              radius: 6,
+              life: ENEMY_PROJECTILE_LIFE,
+              maxLife: ENEMY_PROJECTILE_LIFE,
+            }),
+          );
           enemy.fireCooldown = (1.3 + this.random() * 1.1) / speedScale;
         }
       } else {
@@ -716,23 +746,24 @@ export class Engine {
     const dir = nearest
       ? normalize({ x: nearest.x - world.player.x, y: nearest.y - world.player.y })
       : world.player.lastMoveDir;
-    world.playerProjectiles.push({
-      id: world.nextProjectileId++,
-      x: world.player.x,
-      y: world.player.y,
-      vx: dir.x * world.weapon.projectileSpeed,
-      vy: dir.y * world.weapon.projectileSpeed,
-      radius: 5,
-      life: 1.8,
-      damage: world.weapon.damage,
-      pierceRemaining: world.weapon.pierce,
-      chainRemaining: world.weapon.chain + world.arcCoilLevel,
-      critChance: world.weapon.critChance,
-      knockback: world.weapon.knockback,
-      hitEnemyIds: [],
-      trail: [],
-    });
+    world.playerProjectiles.push(
+      this.allocPlayerProjectile({
+        id: world.nextProjectileId++,
+        x: world.player.x,
+        y: world.player.y,
+        vx: dir.x * world.weapon.projectileSpeed,
+        vy: dir.y * world.weapon.projectileSpeed,
+        radius: 5,
+        life: 1.8,
+        damage: world.weapon.damage,
+        pierceRemaining: world.weapon.pierce,
+        chainRemaining: world.weapon.chain + world.arcCoilLevel,
+        critChance: world.weapon.critChance,
+        knockback: world.weapon.knockback,
+      }),
+    );
 
+    this.audio.play('shoot');
     world.weaponCooldown = 1 / world.weapon.fireRate;
   };
 
@@ -755,9 +786,12 @@ export class Engine {
       }
     }
 
-    world.mines = world.mines
-      .map((mine) => ({ ...mine, armTime: Math.max(0, mine.armTime - dt), life: mine.life - dt }))
-      .filter((mine) => mine.life > 0);
+    for (let i = world.mines.length - 1; i >= 0; i -= 1) {
+      const mine = world.mines[i];
+      mine.armTime = Math.max(0, mine.armTime - dt);
+      mine.life -= dt;
+      if (mine.life <= 0) world.mines.splice(i, 1);
+    }
   };
 
   private sawSystem = (dt: number, world: WorldState): void => {
@@ -778,51 +812,51 @@ export class Engine {
   };
 
   private projectileSystem = (dt: number, world: WorldState): void => {
-    world.enemyProjectiles = world.enemyProjectiles
-      .map((projectile) => {
-        projectile.trail.push({ x: projectile.x, y: projectile.y, life: 0.3, intensity: 0.8 });
-        projectile.trail = projectile.trail
-          .map((p) => ({ ...p, life: p.life - dt }))
-          .filter((p) => p.life > 0)
-          .slice(-9);
-        return {
-          ...projectile,
-          x: projectile.x + projectile.vx * dt,
-          y: projectile.y + projectile.vy * dt,
-          life: projectile.life - dt,
-        };
-      })
-      .filter(
-        (projectile) =>
-          projectile.life > 0 &&
-          projectile.x > -50 &&
-          projectile.y > -50 &&
-          projectile.x < world.width + 50 &&
-          projectile.y < world.height + 50,
-      );
+    const clampTrail = (trail: TrailPoint[], maxLen: number): void => {
+      for (let i = trail.length - 1; i >= 0; i -= 1) {
+        trail[i].life -= dt;
+        if (trail[i].life <= 0) trail.splice(i, 1);
+      }
+      if (trail.length > maxLen) trail.splice(0, trail.length - maxLen);
+    };
 
-    world.playerProjectiles = world.playerProjectiles
-      .map((projectile) => {
-        projectile.trail.push({ x: projectile.x, y: projectile.y, life: 0.22, intensity: 1 });
-        projectile.trail = projectile.trail
-          .map((p) => ({ ...p, life: p.life - dt }))
-          .filter((p) => p.life > 0)
-          .slice(-8);
-        return {
-          ...projectile,
-          x: projectile.x + projectile.vx * dt,
-          y: projectile.y + projectile.vy * dt,
-          life: projectile.life - dt,
-        };
-      })
-      .filter(
-        (projectile) =>
-          projectile.life > 0 &&
-          projectile.x > -50 &&
-          projectile.y > -50 &&
-          projectile.x < world.width + 50 &&
-          projectile.y < world.height + 50,
-      );
+    for (let i = world.enemyProjectiles.length - 1; i >= 0; i -= 1) {
+      const projectile = world.enemyProjectiles[i];
+      projectile.trail.push({ x: projectile.x, y: projectile.y, life: 0.3, intensity: 0.8 });
+      clampTrail(projectile.trail, 9);
+      projectile.x += projectile.vx * dt;
+      projectile.y += projectile.vy * dt;
+      projectile.life -= dt;
+      if (
+        projectile.life <= 0 ||
+        projectile.x <= -50 ||
+        projectile.y <= -50 ||
+        projectile.x >= world.width + 50 ||
+        projectile.y >= world.height + 50
+      ) {
+        const [removed] = world.enemyProjectiles.splice(i, 1);
+        if (removed) this.enemyProjectilePool.push(removed);
+      }
+    }
+
+    for (let i = world.playerProjectiles.length - 1; i >= 0; i -= 1) {
+      const projectile = world.playerProjectiles[i];
+      projectile.trail.push({ x: projectile.x, y: projectile.y, life: 0.22, intensity: 1 });
+      clampTrail(projectile.trail, 8);
+      projectile.x += projectile.vx * dt;
+      projectile.y += projectile.vy * dt;
+      projectile.life -= dt;
+      if (
+        projectile.life <= 0 ||
+        projectile.x <= -50 ||
+        projectile.y <= -50 ||
+        projectile.x >= world.width + 50 ||
+        projectile.y >= world.height + 50
+      ) {
+        const [removed] = world.playerProjectiles.splice(i, 1);
+        if (removed) this.playerProjectilePool.push(removed);
+      }
+    }
   };
 
   private pickupSystem = (dt: number, world: WorldState): void => {
@@ -852,10 +886,12 @@ export class Engine {
         if (dist > world.player.radius + pickup.radius + 2) return true;
 
         world.xp += pickup.value;
+        this.spawnParticles(world, pickup.x, pickup.y, 'xp', 3);
         while (world.xp >= world.xpToNext) {
           world.xp -= world.xpToNext;
           world.level += 1;
           world.xpToNext = Math.ceil(world.xpToNext * 1.3 + 4);
+          this.audio.play('levelUp');
           this.startDraft();
         }
         return false;
@@ -897,6 +933,7 @@ export class Engine {
         life: 0.26,
         radius: mine.blastRadius * 0.55,
       });
+      this.spawnParticles(world, mine.x, mine.y, 'bloom', 28);
     }
 
     for (const enemy of world.enemies) {
@@ -911,13 +948,15 @@ export class Engine {
       enemy.contactCooldown = 0.35;
     }
 
-    world.enemyProjectiles = world.enemyProjectiles.filter((projectile) => {
+    for (let i = world.enemyProjectiles.length - 1; i >= 0; i -= 1) {
+      const projectile = world.enemyProjectiles[i];
       const dx = player.x - projectile.x;
       const dy = player.y - projectile.y;
-      if (Math.hypot(dx, dy) >= player.radius + projectile.radius) return true;
+      if (Math.hypot(dx, dy) >= player.radius + projectile.radius) continue;
       this.applyPlayerHit(world, 10, { x: dx, y: dy });
-      return false;
-    });
+      const [removed] = world.enemyProjectiles.splice(i, 1);
+      if (removed) this.enemyProjectilePool.push(removed);
+    }
 
     for (const projectile of world.playerProjectiles) {
       for (const enemy of world.enemies) {
@@ -936,6 +975,10 @@ export class Engine {
         enemy.vy += knock.y * projectile.knockback;
 
         world.hitBursts.push({ x: enemy.x, y: enemy.y, age: 0, life: 0.2, radius: 26 });
+        this.spawnParticles(world, enemy.x, enemy.y, 'spark', crit ? 12 : 6);
+        this.audio.play('hit');
+        if (dealt >= world.weapon.damage * 1.7 && this.callbacks.getSettings().hitStop)
+          this.hitStopRemaining = Math.max(this.hitStopRemaining, 0.045);
         if (this.callbacks.getSettings().showDamageText) {
           world.damageTexts.push({
             x: enemy.x,
@@ -981,7 +1024,12 @@ export class Engine {
         this.spawnScrap(world, enemy);
       }
     world.enemies = world.enemies.filter((enemy) => enemy.hp > 0);
-    world.playerProjectiles = world.playerProjectiles.filter((projectile) => projectile.life > 0);
+    for (let i = world.playerProjectiles.length - 1; i >= 0; i -= 1) {
+      const projectile = world.playerProjectiles[i];
+      if (projectile.life > 0) continue;
+      const [removed] = world.playerProjectiles.splice(i, 1);
+      if (removed) this.playerProjectilePool.push(removed);
+    }
   };
 
   private bossSweepAttack(world: WorldState, boss: EnemyState): void {
@@ -992,17 +1040,18 @@ export class Engine {
       const t = shots === 1 ? 0.5 : i / (shots - 1);
       const angle = baseAngle - arc / 2 + arc * t;
       const speed = ENEMY_PROJECTILE_SPEED + 60 + boss.phase * 35;
-      world.enemyProjectiles.push({
-        id: world.nextProjectileId++,
-        x: boss.x,
-        y: boss.y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        radius: 7,
-        life: ENEMY_PROJECTILE_LIFE,
-        maxLife: ENEMY_PROJECTILE_LIFE,
-        trail: [],
-      });
+      world.enemyProjectiles.push(
+        this.allocEnemyProjectile({
+          id: world.nextProjectileId++,
+          x: boss.x,
+          y: boss.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 7,
+          life: ENEMY_PROJECTILE_LIFE,
+          maxLife: ENEMY_PROJECTILE_LIFE,
+        }),
+      );
     }
   }
 
@@ -1016,22 +1065,42 @@ export class Engine {
     const length = Math.hypot(sourceDelta.x, sourceDelta.y) || 1;
     world.player.vx += (sourceDelta.x / length) * 180;
     world.player.vy += (sourceDelta.y / length) * 180;
-    if (this.callbacks.getSettings().screenShake)
-      world.cameraShake.strength = Math.max(world.cameraShake.strength, 7);
+    if (this.shouldShake()) world.cameraShake.strength = Math.max(world.cameraShake.strength, 7);
   }
 
   private effectsSystem = (dt: number, world: WorldState): void => {
-    world.dashRings = world.dashRings
-      .map((ring) => ({ ...ring, age: ring.age + dt }))
-      .filter((ring) => ring.age < ring.life);
-    world.hitBursts = world.hitBursts
-      .map((burst) => ({ ...burst, age: burst.age + dt }))
-      .filter((burst) => burst.age < burst.life);
-    world.damageTexts = world.damageTexts
-      .map((text) => ({ ...text, age: text.age + dt, y: text.y - dt * 40 }))
-      .filter((text) => text.age < text.life);
+    for (let i = world.dashRings.length - 1; i >= 0; i -= 1) {
+      const ring = world.dashRings[i];
+      ring.age += dt;
+      if (ring.age >= ring.life) world.dashRings.splice(i, 1);
+    }
+    for (let i = world.hitBursts.length - 1; i >= 0; i -= 1) {
+      const burst = world.hitBursts[i];
+      burst.age += dt;
+      if (burst.age >= burst.life) world.hitBursts.splice(i, 1);
+    }
+    for (let i = world.damageTexts.length - 1; i >= 0; i -= 1) {
+      const text = world.damageTexts[i];
+      text.age += dt;
+      text.y -= dt * 40;
+      if (text.age >= text.life) world.damageTexts.splice(i, 1);
+    }
+    const reduceMotion = this.callbacks.getSettings().reduceMotion;
+    for (let i = world.particles.length - 1; i >= 0; i -= 1) {
+      const particle = world.particles[i];
+      particle.age += dt;
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      particle.vx *= 0.98;
+      particle.vy *= 0.98;
+      if (particle.age >= particle.life) {
+        const [removed] = world.particles.splice(i, 1);
+        if (removed) this.particlePool.push(removed);
+      }
+    }
+
     world.cameraShake.strength = Math.max(0, world.cameraShake.strength - dt * 35);
-    if (world.cameraShake.strength <= 0.01) {
+    if (world.cameraShake.strength <= 0.01 || reduceMotion) {
       world.cameraShake.x = 0;
       world.cameraShake.y = 0;
       return;
@@ -1039,6 +1108,37 @@ export class Engine {
     world.cameraShake.x = (this.random() * 2 - 1) * world.cameraShake.strength;
     world.cameraShake.y = (this.random() * 2 - 1) * world.cameraShake.strength;
   };
+
+  private shouldShake(): boolean {
+    const settings = this.callbacks.getSettings();
+    return settings.screenShake && !settings.reduceMotion;
+  }
+
+  private spawnParticles(
+    world: WorldState,
+    x: number,
+    y: number,
+    kind: ParticleKind,
+    count: number,
+  ): void {
+    if (this.callbacks.getSettings().reduceMotion) count = Math.ceil(count * 0.35);
+    for (let i = 0; i < count; i += 1) {
+      if (world.particles.length >= MAX_PARTICLES) return;
+      const angle = this.random() * Math.PI * 2;
+      const speed = kind === 'bloom' ? 180 + this.random() * 160 : 35 + this.random() * 180;
+      world.particles.push(
+        this.allocParticle({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: kind === 'xp' ? 0.45 : kind === 'bloom' ? 0.32 : 0.24,
+          size: kind === 'bloom' ? 4 + this.random() * 4 : 1.5 + this.random() * 2.5,
+          kind,
+        }),
+      );
+    }
+  }
 
   private startDraft(): void {
     const options = this.rollDraftChoices();
@@ -1420,6 +1520,50 @@ export class Engine {
     });
   }
 
+  private allocPlayerProjectile(
+    base: Omit<PlayerProjectile, 'trail' | 'hitEnemyIds'>,
+  ): PlayerProjectile {
+    const item = this.playerProjectilePool.pop();
+    if (item) {
+      item.id = base.id;
+      item.x = base.x;
+      item.y = base.y;
+      item.vx = base.vx;
+      item.vy = base.vy;
+      item.radius = base.radius;
+      item.life = base.life;
+      item.damage = base.damage;
+      item.pierceRemaining = base.pierceRemaining;
+      item.chainRemaining = base.chainRemaining;
+      item.critChance = base.critChance;
+      item.knockback = base.knockback;
+      item.trail.length = 0;
+      item.hitEnemyIds.length = 0;
+      return item;
+    }
+    return { ...base, trail: [], hitEnemyIds: [] };
+  }
+
+  private allocEnemyProjectile(base: Omit<EnemyProjectile, 'trail'>): EnemyProjectile {
+    const item = this.enemyProjectilePool.pop();
+    if (item) {
+      Object.assign(item, base);
+      item.trail.length = 0;
+      return item;
+    }
+    return { ...base, trail: [] };
+  }
+
+  private allocParticle(base: Omit<Particle, 'age'>): Particle {
+    const item = this.particlePool.pop();
+    if (item) {
+      Object.assign(item, base);
+      item.age = 0;
+      return item;
+    }
+    return { ...base, age: 0 };
+  }
+
   private createWorld(): WorldState {
     return {
       width: this.canvas.width,
@@ -1454,6 +1598,7 @@ export class Engine {
       scrap: [],
       hitBursts: [],
       damageTexts: [],
+      particles: [],
       nextEnemyId: 1,
       nextProjectileId: 1,
       nextPickupId: 1,
