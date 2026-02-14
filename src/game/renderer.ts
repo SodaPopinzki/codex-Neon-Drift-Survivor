@@ -27,6 +27,7 @@ export class Renderer {
     this.drawProjectiles(world, settings);
     this.drawEnemies(world, settings);
     this.drawHitBursts(world, settings);
+    this.drawParticles(world, settings);
     this.drawDamageText(world, settings);
     this.drawSawBlades(world, settings);
     this.drawPlayer(world, settings);
@@ -228,6 +229,20 @@ export class Renderer {
         : `rgba(170, 245, 255, ${alpha})`;
       this.ctx.lineWidth = 2;
       this.ctx.stroke();
+    }
+  }
+
+  private drawParticles(world: WorldState, settings: Settings): void {
+    for (const particle of world.particles) {
+      const alpha = 1 - particle.age / particle.life;
+      this.ctx.beginPath();
+      this.ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+      if (settings.highContrast) this.ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      else if (particle.kind === 'spark') this.ctx.fillStyle = `rgba(255,214,130,${alpha})`;
+      else if (particle.kind === 'xp') this.ctx.fillStyle = `rgba(145,255,180,${alpha})`;
+      else if (particle.kind === 'dash') this.ctx.fillStyle = `rgba(120,245,255,${alpha})`;
+      else this.ctx.fillStyle = `rgba(255,130,110,${alpha})`;
+      this.ctx.fill();
     }
   }
 

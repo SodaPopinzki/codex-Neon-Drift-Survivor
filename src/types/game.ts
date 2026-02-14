@@ -1,7 +1,9 @@
 export type Settings = {
   volume: number;
   screenShake: boolean;
+  hitStop: boolean;
   highContrast: boolean;
+  reduceMotion: boolean;
   showDamageText: boolean;
 };
 
